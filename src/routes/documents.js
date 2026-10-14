@@ -1,0 +1,90 @@
+const express = require('express');
+const { FieldValue } = require('@google-cloud/firestore');
+const firestore = require('../lib/firestore');
+const { bucket } = require('../lib/storage');
+const requireUser = require('../middleware/requireUser');
+const {
+  PDF_CONTENT_TYPE,
+  MAX_UPLOAD_SIZE_BYTES,
+  UPLOAD_URL_EXPIRY_MS,
+  DOCUMENT_STATUS,
+} = require('../constants');
+
+const router = express.Router();
+
+// Returns an error message for the first invalid field, or null if the body is valid.
+function validateCreateBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return 'Request body must be a JSON object';
+  }
+
+  const { filename, contentType, size } = body;
+  if (typeof filename !== 'string' || !filename.trim()) {
+    return 'filename is required and must be a non-empty string';
+  }
+  if (typeof contentType !== 'string') {
+    return 'contentType is required and must be a string';
+  }
+  if (contentType !== PDF_CONTENT_TYPE) {
+    return `contentType must be ${PDF_CONTENT_TYPE}`;
+  }
+  if (!Number.isInteger(size)) {
+    return 'size is required and must be an integer number of bytes';
+  }
+  if (size <= 0 || size > MAX_UPLOAD_SIZE_BYTES) {
+    return `size must be between 1 and ${MAX_UPLOAD_SIZE_BYTES} bytes`;
+  }
+  return null;
+}
+
+router.post('/', requireUser, async (req, res) => {
+  const validationError = validateCreateBody(req.body);
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
+  }
+
+  const { filename, contentType, size } = req.body;
+
+  const docRef = firestore.collection('documents').doc();
+  const objectPath = `documents/${docRef.id}.pdf`;
+  const expiresAt = new Date(Date.now() + UPLOAD_URL_EXPIRY_MS);
+
+  // These headers are part of the signature, so Cloud Storage rejects a PUT
+  // with a different content type or a body outside the size range.
+  const uploadHeaders = {
+    'Content-Type': PDF_CONTENT_TYPE,
+    'x-goog-content-length-range': `1,${MAX_UPLOAD_SIZE_BYTES}`,
+  };
+
+  // Sign before writing the record so a signing failure leaves no orphan record.
+  const [uploadUrl] = await bucket.file(objectPath).getSignedUrl({
+    version: 'v4',
+    action: 'write',
+    expires: expiresAt,
+    contentType: PDF_CONTENT_TYPE,
+    extensionHeaders: {
+      'x-goog-content-length-range': uploadHeaders['x-goog-content-length-range'],
+    },
+  });
+
+  await docRef.create({
+    ownerId: req.userId,
+    filename: filename.trim(),
+    contentType,
+    size,
+    gcsUri: `gs://${bucket.name}/${objectPath}`,
+    status: DOCUMENT_STATUS.PENDING_UPLOAD,
+    error: null,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  res.status(201).json({
+    documentId: docRef.id,
+    uploadUrl,
+    uploadHeaders,
+    expiresAt: expiresAt.toISOString(),
+  });
+});
+
+module.exports = router;
