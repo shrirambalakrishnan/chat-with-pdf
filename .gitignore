@@ -1,0 +1,7 @@
+node_modules/
+
+# Local environment
+.env
+
+# Service account key (the .example.json is committed on purpose)
+service-account-key.json
