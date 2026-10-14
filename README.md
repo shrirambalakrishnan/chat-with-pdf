@@ -51,3 +51,29 @@ Check it is up:
 ```sh
 curl http://localhost:3000/health   # {"status":"ok"}
 ```
+
+## Data model
+
+### `users` collection
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| document id | string | Fixed for the seed user (from the seed config file), auto-generated for real users later. Not duplicated as a field. |
+| `name` | string | |
+| `email` | string | |
+| `createdAt` | timestamp | Set by the server when the document is created |
+
+## Seed user
+
+Until auth exists, every document belongs to a single seed user. Its `id`, `name` and `email` live in
+`scripts/seed-user/seed-user.json`. That file is for seeding only — application code reads users from
+Firestore, never from this file.
+
+With `.env` and the key file in place, create the seed user:
+
+```sh
+npm run seed:user
+```
+
+This creates `users/{id}` using the `id` from the config file as the document id. It is safe to re-run:
+if the user already exists it is left unchanged.
