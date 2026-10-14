@@ -152,3 +152,62 @@ curl -X PUT "<uploadUrl>" \
   -H 'x-goog-content-length-range: 1,20971520' \
   --upload-file report.pdf
 ```
+
+After the `PUT` succeeds, call `POST /documents/:id/complete`.
+
+### `POST /documents/:id/complete`
+
+Tells the service the upload has finished. The service verifies the stored file and updates the
+document's status. No request body.
+
+The stored file must:
+
+- exist at the document's `gcsUri`
+- be larger than zero and at most 20 MB
+- have content type `application/pdf`
+- start with the PDF signature `%PDF-`
+
+| Case | Status | Effect on the record |
+| --- | --- | --- |
+| File is present and valid | `200`, returns the document | status → `uploaded`, `size` → actual object size |
+| File is present but invalid | `422`, returns the reason | status → `failed`, `error` set, object deleted from the bucket |
+| File is not in the bucket yet | `409` | unchanged (`pending_upload`): upload, then retry |
+| Document is already `uploaded` or later | `200`, returns the document | unchanged |
+| Document is already `failed` | `409` | unchanged: start again with `POST /documents` |
+| `X-User-Id` header missing | `401` | unchanged |
+| `X-User-Id` is not a user, or not the document's owner | `403` | unchanged |
+| No document with that id | `404` | none |
+
+```sh
+curl -X POST http://localhost:3000/documents/<documentId>/complete \
+  -H 'X-User-Id: seed-user'
+```
+
+Once a document is `uploaded`, it is picked up from Firestore by the (future) processing service.
+
+### Walkthrough: upload a PDF end to end
+
+Requires [`jq`](https://jqlang.org/). With the server running and the seed user created:
+
+```sh
+FILE=report.pdf
+SIZE=$(wc -c < "$FILE" | tr -d ' ')
+
+# 1. Ask for a signed upload URL
+RESPONSE=$(curl -s -X POST http://localhost:3000/documents \
+  -H 'Content-Type: application/json' \
+  -H 'X-User-Id: seed-user' \
+  -d "{\"filename\": \"$FILE\", \"contentType\": \"application/pdf\", \"size\": $SIZE}")
+DOCUMENT_ID=$(echo "$RESPONSE" | jq -r .documentId)
+UPLOAD_URL=$(echo "$RESPONSE" | jq -r .uploadUrl)
+
+# 2. Upload the file straight to Cloud Storage
+curl -X PUT "$UPLOAD_URL" \
+  -H 'Content-Type: application/pdf' \
+  -H 'x-goog-content-length-range: 1,20971520' \
+  --upload-file "$FILE"
+
+# 3. Confirm the upload; status becomes "uploaded"
+curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/complete" \
+  -H 'X-User-Id: seed-user'
+```
