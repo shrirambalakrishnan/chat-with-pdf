@@ -1,12 +1,23 @@
 {
   "name": "chat-with-pdf",
   "version": "1.0.0",
-  "description": "",
+  "description": "Upload your PDF and chat with it",
   "license": "ISC",
   "author": "",
   "type": "commonjs",
-  "main": "index.js",
+  "main": "src/server.js",
+  "engines": {
+    "node": "26.2.0",
+    "npm": "11.13.0"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "9.3.1",
+    "@google-cloud/storage": "8.4.0",
+    "dotenv": "18.0.7",
+    "express": "5.3.0"
   }
 }
