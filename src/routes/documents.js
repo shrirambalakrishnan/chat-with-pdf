@@ -2,7 +2,7 @@ const express = require('express');
 const { FieldValue } = require('@google-cloud/firestore');
 const firestore = require('../lib/firestore');
 const { bucket, fileFromGcsUri } = require('../lib/storage');
-const verifyUploadedPdf = require('../lib/verifyUpload');
+const verifyUploadedPdf = require('../uploads/verifyUpload');
 const requireUser = require('../middleware/requireUser');
 const {
   PDF_CONTENT_TYPE,
