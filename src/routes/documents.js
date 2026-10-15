@@ -2,6 +2,7 @@ const express = require('express');
 const { FieldValue } = require('@google-cloud/firestore');
 const firestore = require('../lib/firestore');
 const { bucket, fileFromGcsUri } = require('../lib/storage');
+const { findDocument, serializeDocument } = require('../lib/documents');
 const verifyUploadedPdf = require('../uploads/verifyUpload');
 const requireUser = require('../middleware/requireUser');
 const {
@@ -13,8 +14,7 @@ const {
 
 const router = express.Router();
 
-// Firestore gRPC status codes.
-const INVALID_ARGUMENT = 3;
+// Firestore gRPC status code for a failed update precondition.
 const FAILED_PRECONDITION = 9;
 
 // Returns an error message for the first invalid field, or null if the body is valid.
@@ -91,29 +91,6 @@ router.post('/', requireUser, async (req, res) => {
     expiresAt: expiresAt.toISOString(),
   });
 });
-
-
-// Loads a document snapshot, or null if no document has that id.
-async function findDocument(documentId) {
-  try {
-    const snapshot = await firestore.collection('documents').doc(documentId).get();
-    return snapshot.exists ? snapshot : null;
-  } catch (err) {
-    // Ids Firestore cannot address (e.g. "..") can never match a document.
-    if (err.code === INVALID_ARGUMENT) return null;
-    throw err;
-  }
-}
-
-function serializeDocument(snapshot) {
-  const data = snapshot.data();
-  return {
-    id: snapshot.id,
-    ...data,
-    createdAt: data.createdAt?.toDate().toISOString() ?? null,
-    updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
-  };
-}
 
 // Updates the document only if nobody else changed it since it was read.
 // Resolves to false if a concurrent request got there first.
