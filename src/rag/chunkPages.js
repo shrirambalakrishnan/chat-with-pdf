@@ -1,21 +1,10 @@
 const DEFAULT_CHUNK_SIZE = 1000;
 const DEFAULT_CHUNK_OVERLAP = 150;
 
-// Placed between pages, so a page break also counts as a paragraph break.
+// Placed between pages when they are joined into one text.
 const PAGE_SEPARATOR = '\n\n';
 
-// Places a chunk may end, best first. Each pattern matches the separator a
-// chunk ends after.
-const BOUNDARIES = [
-  /\n\s*\n/g, // paragraph
-  /\n/g, // line
-  /[.!?]["')\]]*\s+/g, // sentence
-  /\s+/g, // word
-];
-
-// A chunk ends at the best boundary found in its second half. Ending earlier
-// would leave chunks much shorter than the target size.
-const MIN_CHUNK_FRACTION = 0.5;
+const isSpace = (char) => /\s/.test(char);
 
 // Joins the pages into one text and records where each page starts in it.
 function joinPages(pages) {
@@ -36,54 +25,13 @@ function pageAt(pageStarts, offset) {
   return page + 1;
 }
 
-// Where the chunk starting at `start` should end: after the best boundary
-// between minEnd and maxEnd, or exactly at maxEnd if there is none.
-function findChunkEnd(text, start, chunkSize) {
-  const maxEnd = start + chunkSize;
-  if (maxEnd >= text.length) return text.length;
-
-  const minEnd = start + Math.floor(chunkSize * MIN_CHUNK_FRACTION);
-  const window = text.slice(start, maxEnd);
-  for (const pattern of BOUNDARIES) {
-    let lastEnd = -1;
-    for (const match of window.matchAll(pattern)) {
-      const end = start + match.index + match[0].length;
-      if (end >= minEnd) lastEnd = end;
-    }
-    if (lastEnd !== -1) return lastEnd;
-  }
-  return maxEnd;
-}
-
-// Where the chunk after [start, end) should start: at most `overlap`
-// characters before `end`, at the first line or sentence start in that
-// range, or failing that the first word start, so no chunk opens mid-word.
-function findNextStart(text, start, end, overlap) {
-  const from = Math.max(end - overlap, start + 1);
-  const overlapText = text.slice(from, end);
-
-  let next = end;
-  const sentence = /(?:\n|[.!?]["')\]]*\s)\s*(?=\S)/.exec(overlapText);
-  if (sentence) {
-    next = from + sentence.index + sentence[0].length;
-  } else if (/\s/.test(text[from - 1])) {
-    next = from;
-  } else {
-    const word = /\s+(?=\S)/.exec(overlapText);
-    if (word) next = from + word.index + word[0].length;
-  }
-
-  while (next < text.length && /\s/.test(text[next])) next++;
-  return next;
-}
-
 /**
  * Splits page texts into overlapping chunks for embedding.
  *
- * Chunks are at most `chunkSize` characters and end at the best natural
- * boundary available (paragraph, then line, sentence, word). Each chunk
- * repeats up to `chunkOverlap` characters from the end of the previous one,
- * so text cut at a boundary still appears whole in one of them.
+ * Slides a window of `chunkSize` characters over the text; each chunk starts
+ * about `chunkOverlap` characters before the previous one ended, so text cut
+ * at a chunk edge still appears whole in the next chunk. Chunk edges are
+ * moved to the nearest space so no word is cut in half.
  *
  * Chunks may cross page breaks. Each one records the pages it covers, for
  * citations.
@@ -95,33 +43,42 @@ function chunkPages(
   pages,
   { chunkSize = DEFAULT_CHUNK_SIZE, chunkOverlap = DEFAULT_CHUNK_OVERLAP } = {}
 ) {
-  if (chunkOverlap >= chunkSize * MIN_CHUNK_FRACTION) {
-    // Otherwise a chunk could start before the previous one and never advance.
-    throw new Error(
-      `chunkOverlap (${chunkOverlap}) must be less than half of chunkSize (${chunkSize})`
-    );
+  if (chunkOverlap >= chunkSize) {
+    throw new Error(`chunkOverlap (${chunkOverlap}) must be less than chunkSize (${chunkSize})`);
   }
 
   const { text, pageStarts } = joinPages(pages);
   const chunks = [];
-  let start = text.search(/\S/);
-  if (start === -1) return chunks;
+  let start = 0;
 
   while (start < text.length) {
-    const end = findChunkEnd(text, start, chunkSize);
+    // End the chunk at the last space in the window rather than mid-word.
+    // The space must leave the chunk longer than the overlap, so the next
+    // chunk still starts after this one.
+    let end = Math.min(start + chunkSize, text.length);
+    if (end < text.length && !isSpace(text[end])) {
+      let space = end - 1;
+      while (space > start + chunkOverlap && !isSpace(text[space])) space--;
+      if (space > start + chunkOverlap) end = space;
+    }
+
     const raw = text.slice(start, end);
-    const trimmedStart = start + raw.search(/\S/);
     const chunkText = raw.trim();
     if (chunkText) {
+      const textStart = start + raw.search(/\S/);
       chunks.push({
         index: chunks.length,
         text: chunkText,
-        pageStart: pageAt(pageStarts, trimmedStart),
-        pageEnd: pageAt(pageStarts, trimmedStart + chunkText.length - 1),
+        pageStart: pageAt(pageStarts, textStart),
+        pageEnd: pageAt(pageStarts, textStart + chunkText.length - 1),
       });
     }
-    if (end >= text.length) break;
-    start = findNextStart(text, start, end, chunkOverlap);
+    if (end === text.length) break;
+
+    // Step back for the overlap, then forward to the start of a word.
+    let next = end - chunkOverlap;
+    while (next < end && !isSpace(text[next - 1])) next++;
+    start = next;
   }
 
   return chunks;

@@ -123,10 +123,10 @@ PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vect
 
 1. **Extract** the text layer page by page (`unpdf`). PDFs are assumed to have one; a PDF with no
    text at all is rejected.
-2. **Chunk** into pieces of up to 1000 characters. A chunk ends at the best boundary available
-   (paragraph, then line, sentence, word) and repeats up to 150 characters from the end of the
-   previous chunk, so text cut at a boundary still appears whole in one of them. Chunks may cross page
-   breaks and record `pageStart` / `pageEnd` for citations.
+2. **Chunk** with a sliding window of 1000 characters. Each chunk starts about 150 characters before
+   the previous one ended, so text cut at a chunk edge still appears whole in the next chunk. Edges
+   are moved to the nearest space so no word is cut in half. Chunks may cross page breaks and record
+   `pageStart` / `pageEnd` for citations.
 3. **Embed** each chunk with task type `RETRIEVAL_DOCUMENT`. Questions must later be embedded with
    `RETRIEVAL_QUERY`, the same model and the same dimensions, or they will not match.
 4. **Store** the chunks with their embeddings, replacing any earlier chunks of the same document.
