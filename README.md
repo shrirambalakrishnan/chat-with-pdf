@@ -185,6 +185,18 @@ curl -X POST http://localhost:3000/documents/<documentId>/complete \
 
 Once a document is `uploaded`, it is picked up from Firestore by the (future) processing service.
 
+Upload completion lives in `src/uploads/`, separate from the rest of the API:
+
+| File | Role |
+| --- | --- |
+| `completeUpload.js` | Core: verifies the stored file and settles a `pending_upload` document. Safe to call repeatedly or concurrently. No HTTP or auth. |
+| `verifyUpload.js` | The checks on the stored file, used by the core |
+| `completeRoute.js` | This endpoint: checks the user and ownership, calls the core, maps the outcome to a status code. Mounted with one line in `src/app.js`. |
+
+Another way of detecting completion (e.g. Cloud Storage events via Pub/Sub, #9) should call
+`completeUpload` from its own entry point. Removing this endpoint means deleting `completeRoute.js`
+and its mount line.
+
 ### Walkthrough: upload a PDF end to end
 
 Requires [`jq`](https://jqlang.org/). With the server running and the seed user created:
