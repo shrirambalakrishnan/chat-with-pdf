@@ -1,5 +1,6 @@
 const express = require('express');
 const documentsRouter = require('./routes/documents');
+const completeUploadRouter = require('./uploads/completeRoute');
 
 const app = express();
 
@@ -10,6 +11,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/documents', documentsRouter);
+app.use('/documents', completeUploadRouter);
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
