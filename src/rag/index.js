@@ -1,4 +1,5 @@
-// Retrieval-augmented generation: ingestion now, retrieval with chat (#3).
+// Retrieval-augmented generation: ingestion and retrieval; answering with
+// chat (#30).
 // Everything this module needs (clients, model, settings) is passed in by
 // the caller; nothing here reads environment variables.
 const ingestPdf = require('./ingestPdf');
