@@ -290,7 +290,7 @@ curl -X POST http://localhost:3000/documents/<documentId>/complete \
   -H 'X-User-Id: seed-user'
 ```
 
-Once a document is `uploaded`, it is picked up from Firestore by the (future) processing service.
+Once a document is `uploaded`, call `POST /documents/:id/extract` to make it searchable.
 
 Upload completion lives in `src/uploads/`, separate from the rest of the API:
 
@@ -303,6 +303,46 @@ Upload completion lives in `src/uploads/`, separate from the rest of the API:
 Another way of detecting completion (e.g. Cloud Storage events via Pub/Sub, #9) should call
 `completeUpload` from its own entry point. Removing this endpoint means deleting `completeRoute.js`
 and its mount line.
+
+### `POST /documents/:id/extract`
+
+Runs [RAG ingestion](#rag-ingestion) on an `uploaded` document: downloads the PDF, then chunks,
+embeds and stores its text in `chunks`. Synchronous: the request returns when ingestion has
+finished. No request body.
+
+Status flow: `uploaded` → `processing` → `ready`, or `failed` with `error` set.
+
+| Case | Status | Effect on the record |
+| --- | --- | --- |
+| Ingestion succeeds | `200`, returns the document | status → `processing` → `ready` |
+| Ingestion fails (incl. the PDF download) | `500`, returns the reason | status → `processing` → `failed`, `error` set |
+| Document is not `uploaded` (incl. a call already `processing` it) | `409` | unchanged |
+| `X-User-Id` header missing | `401` | unchanged |
+| `X-User-Id` is not a user, or not the document's owner | `403` | unchanged |
+| No document with that id | `404` | none |
+
+```sh
+curl -X POST http://localhost:3000/documents/<documentId>/extract \
+  -H 'X-User-Id: seed-user'
+```
+
+Extraction lives in `src/extraction/`, with the same split as `src/uploads/`:
+
+| File | Role |
+| --- | --- |
+| `extractDocument.js` | Core: moves an `uploaded` document to `processing`, downloads the PDF, calls `ingestPdf`, sets `ready` or `failed`. No HTTP or auth. |
+| `extractRoute.js` | This endpoint: checks the user and ownership, calls the core, maps the result to a status code. Mounted with one line in `src/app.js`. |
+
+Starting extraction automatically after upload should call `extractDocument` from its own entry
+point.
+
+Known limits:
+
+- A document left in `processing` (e.g. the server restarts mid-run) can't be extracted again.
+- Chunks written before a failure are left behind.
+- A `failed` document can't be retried; upload it again.
+- The call is synchronous. A large PDF takes hundreds of embedding requests in a row, so a client or
+  proxy may time out first. The server keeps going and the record still ends `ready` or `failed`.
 
 ### Walkthrough: upload a PDF end to end
 
@@ -328,5 +368,9 @@ curl -X PUT "$UPLOAD_URL" \
 
 # 3. Confirm the upload; status becomes "uploaded"
 curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/complete" \
+  -H 'X-User-Id: seed-user'
+
+# 4. Extract, chunk and embed the text; status becomes "ready"
+curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/extract" \
   -H 'X-User-Id: seed-user'
 ```
