@@ -8,6 +8,8 @@ const REQUIRED_VARS = [
   'VERTEX_LOCATION',
   'EMBEDDING_MODEL',
   'EMBEDDING_DIMENSIONS',
+  'CHAT_MODEL',
+  'CHAT_LOCATION',
 ];
 
 // Firestore vector fields hold at most 2048 dimensions.
@@ -46,5 +48,9 @@ module.exports = {
   embedding: {
     model: process.env.EMBEDDING_MODEL,
     dimensions: embeddingDimensions,
+  },
+  chat: {
+    model: process.env.CHAT_MODEL,
+    location: process.env.CHAT_LOCATION,
   },
 };
