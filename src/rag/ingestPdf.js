@@ -21,10 +21,10 @@ const chunkId = (documentId, index) => `${documentId}_${index}`;
 async function ingestPdf(
   pdfBuffer,
   { ownerId, documentId },
-  { embedder, vectorStore, chunkSize, chunkOverlap }
+  { embedder, vectorStore, chunkWords, overlapWords }
 ) {
   const pages = await extractPages(pdfBuffer);
-  const chunks = chunkPages(pages, { chunkSize, chunkOverlap });
+  const chunks = chunkPages(pages, { chunkWords, overlapWords });
   if (chunks.length === 0) {
     throw new Error('The PDF has no extractable text');
   }
