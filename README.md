@@ -473,6 +473,62 @@ Known limits:
 - The call is synchronous. A large PDF takes hundreds of embedding requests in a row, so a client or
   proxy may time out first. The server keeps going and the record still ends `ready` or `failed`.
 
+Once a document is `ready`, ask questions about it with `POST /documents/:id/chat`.
+
+### `POST /documents/:id/chat`
+
+Answers one question about a `ready` document with [RAG generation](#generation): retrieves the
+nearest chunks of the document and answers from them, citing pages. Synchronous, plain JSON, no
+streaming.
+
+Each question is answered on its own: there is no message history, and nothing is written to
+Firestore.
+
+Request body:
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `message` | string | required, 1 to 2,000 characters after trimming. Sent to the model trimmed |
+
+```sh
+curl -X POST http://localhost:3000/documents/<documentId>/chat \
+  -H 'Content-Type: application/json' \
+  -H 'X-User-Id: seed-user' \
+  -d '{"message": "What does the report recommend?"}'
+```
+
+Response `200`:
+
+```json
+{
+  "answer": "The report recommends ... [p. 4]",
+  "sources": [{ "chunkId": "AbC123_7", "pageStart": 4, "pageEnd": 4, "text": "..." }]
+}
+```
+
+`sources` are the retrieved chunks, most relevant first, and may include chunks the answer doesn't
+cite.
+
+| Case | Status |
+| --- | --- |
+| Answer generated | `200`, returns `answer` and `sources` |
+| `message` missing, empty, not a string, or over 2,000 characters | `400` |
+| `X-User-Id` header missing | `401` |
+| `X-User-Id` is not a user, or not the document's owner | `403` |
+| No document with that id | `404` |
+| Document is not `ready` | `409` |
+| The embedding model, the vector store or the chat model fails, or the answer is empty or blocked | `502`, returns the reason |
+
+Checks run in that order, except that the `401` and unknown-user `403` come before the body is
+validated.
+
+Chat lives in `src/chat/`, with the same split as `src/uploads/` and `src/extraction/`:
+
+| File | Role |
+| --- | --- |
+| `chatWithDocument.js` | Core: checks the document is `ready`, calls `askPdf` with the RAG dependencies from `src/lib/rag.js`. No HTTP or auth. |
+| `chatRoute.js` | This endpoint: validates the body, checks the user and ownership, calls the core, maps the result to a status code. Mounted with one line in `src/app.js`. |
+
 ### Walkthrough: upload a PDF end to end
 
 Requires [`jq`](https://jqlang.org/). With the server running and the seed user created:
@@ -502,4 +558,10 @@ curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/complete" \
 # 4. Extract, chunk and embed the text; status becomes "ready"
 curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/extract" \
   -H 'X-User-Id: seed-user'
+
+# 5. Ask a question; returns an answer with page citations and its sources
+curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/chat" \
+  -H 'Content-Type: application/json' \
+  -H 'X-User-Id: seed-user' \
+  -d '{"message": "What does the report recommend?"}'
 ```
