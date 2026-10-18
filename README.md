@@ -23,6 +23,23 @@ Answers to your questions will be grounded to the document you have uploaded!
       --role roles/aiplatform.user
     ```
 
+  - a composite vector index on the `chunks` collection, which retrieval needs to search the chunks
+    of one document. The dimension must match `EMBEDDING_DIMENSIONS`:
+
+    ```sh
+    gcloud firestore indexes composite create \
+      --project <project-id> \
+      --database <database-id> \
+      --collection-group chunks \
+      --query-scope collection \
+      --field-config field-path=ownerId,order=ascending \
+      --field-config field-path=documentId,order=ascending \
+      --field-config field-path=embedding,vector-config='{"dimension":"768","flat":"{}"}'
+    ```
+
+    The index takes a few minutes to build. Check it with
+    `gcloud firestore indexes composite list --project <project-id> --database <database-id>`.
+
 ```sh
 nvm use        # picks v26.2.0 from .nvmrc
 npm install
@@ -107,9 +124,10 @@ Written by RAG ingestion. One document per chunk of a PDF's text. Document id is
 | `embedding` | vector | `EMBEDDING_DIMENSIONS` numbers, as returned by the model |
 | `createdAt` | timestamp | server time |
 
-## RAG ingestion
+## RAG ingestion and retrieval
 
-`src/rag/` turns a PDF into chunks that can be searched by meaning. It is a self-contained module: it
+`src/rag/` turns a PDF into chunks that can be searched by meaning, and finds the chunks nearest to a
+question. It is a self-contained module: it
 knows nothing about HTTP, the `documents` collection or document status, and reads no environment
 variables. Its clients and settings are passed in; `src/lib/rag.js` builds them from config.
 
@@ -138,7 +156,7 @@ PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vect
 | `ingestPdf.js` | Runs the pipeline for one PDF |
 | `extractPages.js` | Text per page |
 | `chunkPages.js` | Overlapping, page-aware word windows |
-| `embedder.js` | Gemini embedder, one request per chunk, in order |
+| `embedder.js` | Gemini embedder, one request per chunk, in order, and one per question |
 | `vectorStores/firestore.js` | Vector store on Firestore native vector search |
 
 ```js
@@ -149,6 +167,30 @@ await ingestPdf(pdfBuffer, { ownerId, documentId }, { embedder, vectorStore });
 // → { pageCount, chunkCount }
 ```
 
+### Retrieval
+
+```
+question ──▶ embed ──▶ vector store query
+             (RETRIEVAL_QUERY)  (nearest chunks of one document)
+```
+
+```js
+const { embedder, vectorStore } = require('./src/lib/rag');
+
+const vector = await embedder.embedQuery(question);
+const chunks = await vectorStore.query(vector, { ownerId, documentId }, 5);
+// → [{ id, text, pageStart, pageEnd, distance }, ...], nearest first
+```
+
+1. **Embed** the whole question as one vector, with task type `RETRIEVAL_QUERY` and the same model
+   and dimensions as the chunks.
+2. **Query** the chunks of that owner's document with Firestore `findNearest`, using cosine distance
+   (the embeddings are not normalized yet, #19). Lower `distance` is nearer. There is no similarity
+   threshold, so the `topK` nearest chunks are always returned, even if none of them is relevant.
+
+The query needs the composite vector index from [Prerequisites](#prerequisites); without it Firestore
+rejects the query.
+
 ### Embedding requests
 
 Gemini embedding models on Vertex AI take **one text per request** (other Vertex embedding models
@@ -158,20 +200,17 @@ with no retries yet, so a rate limit (`429`) or transient error fails the ingest
 
 ### Swapping the vector store
 
-Ingestion only calls the vector store contract, documented in `vectorStores/firestore.js`:
+Ingestion and retrieval only call the vector store contract, documented in
+`vectorStores/firestore.js`:
 
 | Method | Purpose |
 | --- | --- |
 | `upsert(records)` | Store chunks with their embeddings, keyed by chunk id |
-
-`query` (nearest chunks) is added to the contract with retrieval (#3).
+| `query(vector, { ownerId, documentId }, topK)` | The `topK` chunks of one document nearest to `vector`, nearest first |
 
 To use Vertex AI Vector Search or Pinecone instead, add a file in `vectorStores/` that implements the
 contract (using the chunk id as the vector id, and `ownerId` / `documentId` as filters) and pass it
 from `src/lib/rag.js`. Nothing else changes.
-
-The Firestore vector index on `chunks.embedding` is not needed to write chunks, only to query them, so
-it is set up with retrieval.
 
 ### Try it on a local PDF
 
@@ -185,6 +224,17 @@ npm run rag:ingest -- report.pdf seed-user test-doc
 The ids are stored on the chunks as given; they do not have to match an existing user or document.
 Use a new `documentId` when trying a different PDF: re-running overwrites chunks by id but does not
 delete any, so leftover chunks from an earlier, longer PDF would stay.
+
+Then ask a question about it, with the same ids:
+
+```sh
+npm run rag:query -- seed-user test-doc "What was the revenue last year?"
+# 5 chunks for "What was the revenue last year?" in test-doc:
+#
+# test-doc_12 (p4, distance 0.2731)
+# <chunk text>
+# ...
+```
 
 ## Seed user
 
@@ -306,7 +356,7 @@ and its mount line.
 
 ### `POST /documents/:id/extract`
 
-Runs [RAG ingestion](#rag-ingestion) on an `uploaded` document: downloads the PDF, then chunks,
+Runs [RAG ingestion](#rag-ingestion-and-retrieval) on an `uploaded` document: downloads the PDF, then chunks,
 embeds and stores its text in `chunks`. Synchronous: the request returns when ingestion has
 finished. No request body.
 
