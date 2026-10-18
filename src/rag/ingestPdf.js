@@ -1,8 +1,8 @@
 const extractPages = require('./extractPages');
 const { chunkPages } = require('./chunkPages');
 
-// Deterministic, so re-ingesting a document replaces its chunks. Another
-// vector store uses the same id as its vector id.
+// Deterministic, so re-ingesting a document overwrites its chunks instead of
+// duplicating them. Another vector store uses the same id as its vector id.
 const chunkId = (documentId, index) => `${documentId}_${index}`;
 
 /**
@@ -15,8 +15,8 @@ const chunkId = (documentId, index) => `${documentId}_${index}`;
  * filter by them. The embedder and vector store are passed in, so either
  * can be swapped without touching this pipeline.
  *
- * Any chunks already stored for the document are replaced. Resolves to
- * { pageCount, chunkCount }.
+ * Chunks already stored for the document are overwritten through their
+ * deterministic ids. Resolves to { pageCount, chunkCount }.
  */
 async function ingestPdf(
   pdfBuffer,
@@ -31,9 +31,6 @@ async function ingestPdf(
 
   const embeddings = await embedder.embedDocuments(chunks.map((chunk) => chunk.text));
 
-  // A re-run may produce fewer chunks than last time; clear the old ones so
-  // none are left behind.
-  await vectorStore.deleteByDocument(documentId);
   await vectorStore.upsert(
     chunks.map((chunk, i) => ({
       id: chunkId(documentId, chunk.index),
