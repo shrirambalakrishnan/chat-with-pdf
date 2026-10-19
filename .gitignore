@@ -3,5 +3,5 @@ node_modules/
 # Local environment
 .env
 
-# Service account key (the .example.json is committed on purpose)
+# Service account key, if one is used instead of ADC
 service-account-key.json

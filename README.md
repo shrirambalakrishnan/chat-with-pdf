@@ -9,19 +9,30 @@ Answers to your questions will be grounded to the document you have uploaded!
 ### Prerequisites
 
 - Node **v26.2.0** and npm **11.13.0** (enforced — `npm install` fails on other versions)
+- The [`gcloud` CLI](https://cloud.google.com/sdk/docs/install)
 - A GCP project with:
   - a Cloud Storage bucket
   - a Firestore database
-  - a service account with object read/write/delete on the bucket and Firestore read/write
-  - the Vertex AI API enabled, and the `Vertex AI User` role (`roles/aiplatform.user`) on the service
-    account, to call the embedding and chat models:
+  - the Vertex AI API enabled, to call the embedding and chat models:
 
     ```sh
     gcloud services enable aiplatform.googleapis.com --project <project-id>
-    gcloud projects add-iam-policy-binding <project-id> \
-      --member serviceAccount:<service-account-email> \
-      --role roles/aiplatform.user
     ```
+
+  - these roles for the account the service runs as (your Google account locally, see
+    [Credentials](#credentials)). A project owner already has them:
+    - `Storage Object Admin` (`roles/storage.objectAdmin`) on the bucket: object read/write/delete
+    - `Cloud Datastore User` (`roles/datastore.user`): Firestore read/write
+    - `Vertex AI User` (`roles/aiplatform.user`)
+
+    ```sh
+    gcloud storage buckets add-iam-policy-binding gs://<bucket-name> \
+      --member <member> --role roles/storage.objectAdmin
+    gcloud projects add-iam-policy-binding <project-id> --member <member> --role roles/datastore.user
+    gcloud projects add-iam-policy-binding <project-id> --member <member> --role roles/aiplatform.user
+    ```
+
+    where `<member>` is `user:<your-email>` or `serviceAccount:<service-account-email>`.
 
   - a composite vector index on the `chunks` collection, which retrieval needs to search the chunks
     of one document. The dimension must match `EMBEDDING_DIMENSIONS`:
@@ -45,11 +56,20 @@ nvm use        # picks v26.2.0 from .nvmrc
 npm install
 ```
 
-### Service account key
+### Credentials
 
-Download a JSON key for the service account from the GCP console and save it at the repo root as
-`service-account-key.json`. This file is gitignored — never commit it.
-`service-account-key.example.json` shows the expected shape.
+The service needs no key file. The Google client libraries find credentials on their own through
+[Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials)
+(ADC). Locally, log in once with your Google account:
+
+```sh
+gcloud auth application-default login
+```
+
+On Cloud Run, ADC uses the service account attached to the service.
+
+If `GOOGLE_APPLICATION_CREDENTIALS` is set, in your shell or in `.env`, the libraries read credentials
+from that file instead. Leave it unset unless you mean to use a key file.
 
 ### Environment variables
 
@@ -60,7 +80,6 @@ Copy `.env.example` to `.env` and fill in every value:
 | `GCP_PROJECT_ID` | GCP project id |
 | `GCS_BUCKET_NAME` | Cloud Storage bucket name |
 | `FIRESTORE_DATABASE_ID` | Firestore database id (`(default)` for the default database) |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to the service account key file, e.g. `./service-account-key.json` |
 | `VERTEX_LOCATION` | Vertex AI region for the embedding model, e.g. `us-central1` |
 | `EMBEDDING_MODEL` | Embedding model, `gemini-embedding-001` |
 | `EMBEDDING_DIMENSIONS` | Embedding size, `768`. At most 2048 (Firestore's vector limit) |
@@ -281,7 +300,7 @@ from `src/lib/rag.js`. Nothing else changes.
 
 ### Try it on a local PDF
 
-With `.env` and the key file in place:
+With `.env` in place and logged in (see [Credentials](#credentials)):
 
 ```sh
 npm run rag:ingest -- report.pdf seed-user test-doc
@@ -321,7 +340,7 @@ Until auth exists, every document belongs to a single seed user. Its `id`, `name
 `scripts/seed-user/seed-user.json`. That file is for seeding only — application code reads users from
 Firestore, never from this file.
 
-With `.env` and the key file in place, create the seed user:
+With `.env` in place and logged in (see [Credentials](#credentials)), create the seed user:
 
 ```sh
 npm run seed:user
@@ -338,7 +357,7 @@ the `users` collection (e.g. the seed user).
 ### `POST /documents`
 
 Asks for permission to upload one PDF. Creates a `documents` record with status `pending_upload` and
-returns a signed URL; the client then uploads the file directly to Cloud Storage.
+returns a resumable upload URL; the client then uploads the file directly to Cloud Storage.
 
 Request body:
 
@@ -346,7 +365,7 @@ Request body:
 | --- | --- | --- |
 | `filename` | string | required |
 | `contentType` | string | must be `application/pdf` |
-| `size` | number | bytes, 1 to 20 MB (20971520) |
+| `size` | number | bytes, 1 to 20 MB (20971520). The upload must be exactly this size |
 
 ```sh
 curl -X POST http://localhost:3000/documents \
@@ -360,12 +379,10 @@ Response `201`:
 ```json
 {
   "documentId": "AbC123...",
-  "uploadUrl": "https://storage.googleapis.com/<bucket>/documents/AbC123....pdf?X-Goog-Algorithm=...",
+  "uploadUrl": "https://storage.googleapis.com/upload/storage/v1/b/<bucket>/o?name=documents%2FAbC123....pdf&uploadType=resumable&upload_id=...",
   "uploadHeaders": {
-    "Content-Type": "application/pdf",
-    "x-goog-content-length-range": "1,20971520"
-  },
-  "expiresAt": "2026-01-01T00:15:00.000Z"
+    "Content-Type": "application/pdf"
+  }
 }
 ```
 
@@ -377,15 +394,21 @@ Errors:
 | `401` | `X-User-Id` header missing |
 | `403` | `X-User-Id` does not match a user |
 
-#### Uploading to the signed URL
+#### Uploading to the upload URL
 
-`PUT` the file to `uploadUrl` within 15 minutes, sending every header in `uploadHeaders` exactly as
-returned. Cloud Storage rejects the upload if the content type differs or the file is over 20 MB.
+`uploadUrl` is a Cloud Storage
+[resumable upload session](https://cloud.google.com/storage/docs/resumable-uploads). `PUT` the whole
+file to it in one request, with the headers in `uploadHeaders`. No auth header is needed: the URL
+itself grants the upload, so keep it private.
+
+- The file must be exactly the `size` declared in `POST /documents`. Cloud Storage rejects any other
+  size with `400`.
+- The object is stored as `application/pdf` whatever `Content-Type` the client sends.
+- The session lasts up to a week. Cloud Storage does not report its expiry.
 
 ```sh
 curl -X PUT "<uploadUrl>" \
   -H 'Content-Type: application/pdf' \
-  -H 'x-goog-content-length-range: 1,20971520' \
   --upload-file report.pdf
 ```
 
@@ -537,7 +560,7 @@ Requires [`jq`](https://jqlang.org/). With the server running and the seed user 
 FILE=report.pdf
 SIZE=$(wc -c < "$FILE" | tr -d ' ')
 
-# 1. Ask for a signed upload URL
+# 1. Ask for an upload URL
 RESPONSE=$(curl -s -X POST http://localhost:3000/documents \
   -H 'Content-Type: application/json' \
   -H 'X-User-Id: seed-user' \
@@ -548,7 +571,6 @@ UPLOAD_URL=$(echo "$RESPONSE" | jq -r .uploadUrl)
 # 2. Upload the file straight to Cloud Storage
 curl -X PUT "$UPLOAD_URL" \
   -H 'Content-Type: application/pdf' \
-  -H 'x-goog-content-length-range: 1,20971520' \
   --upload-file "$FILE"
 
 # 3. Confirm the upload; status becomes "uploaded"
