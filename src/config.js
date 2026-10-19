@@ -4,7 +4,6 @@ const REQUIRED_VARS = [
   'GCP_PROJECT_ID',
   'GCS_BUCKET_NAME',
   'FIRESTORE_DATABASE_ID',
-  'GOOGLE_APPLICATION_CREDENTIALS',
   'VERTEX_LOCATION',
   'EMBEDDING_MODEL',
   'EMBEDDING_DIMENSIONS',
@@ -42,7 +41,6 @@ module.exports = {
     projectId: process.env.GCP_PROJECT_ID,
     bucketName: process.env.GCS_BUCKET_NAME,
     firestoreDatabaseId: process.env.FIRESTORE_DATABASE_ID,
-    credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS,
     vertexLocation: process.env.VERTEX_LOCATION,
   },
   embedding: {
