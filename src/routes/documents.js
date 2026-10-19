@@ -6,7 +6,6 @@ const requireUser = require('../middleware/requireUser');
 const {
   PDF_CONTENT_TYPE,
   MAX_UPLOAD_SIZE_BYTES,
-  UPLOAD_URL_EXPIRY_MS,
   DOCUMENT_STATUS,
 } = require('../constants');
 
@@ -47,24 +46,13 @@ router.post('/', requireUser, async (req, res) => {
 
   const docRef = firestore.collection('documents').doc();
   const objectPath = `documents/${docRef.id}.pdf`;
-  const expiresAt = new Date(Date.now() + UPLOAD_URL_EXPIRY_MS);
-
-  // These headers are part of the signature, so Cloud Storage rejects a PUT
-  // with a different content type or a body outside the size range.
-  const uploadHeaders = {
-    'Content-Type': PDF_CONTENT_TYPE,
-    'x-goog-content-length-range': `1,${MAX_UPLOAD_SIZE_BYTES}`,
-  };
-
-  // Sign before writing the record so a signing failure leaves no orphan record.
-  const [uploadUrl] = await bucket.file(objectPath).getSignedUrl({
-    version: 'v4',
-    action: 'write',
-    expires: expiresAt,
-    contentType: PDF_CONTENT_TYPE,
-    extensionHeaders: {
-      'x-goog-content-length-range': uploadHeaders['x-goog-content-length-range'],
-    },
+  // A resumable upload session needs no signing, so it works with any
+  // credentials, including a developer's gcloud login. The session fixes the
+  // content type, and Cloud Storage rejects a PUT whose body is not exactly
+  // the declared size. Start the session before writing the record so a
+  // failure leaves no orphan record.
+  const [uploadUrl] = await bucket.file(objectPath).createResumableUpload({
+    metadata: { contentType: PDF_CONTENT_TYPE, contentLength: size },
   });
 
   await docRef.create({
@@ -82,8 +70,7 @@ router.post('/', requireUser, async (req, res) => {
   res.status(201).json({
     documentId: docRef.id,
     uploadUrl,
-    uploadHeaders,
-    expiresAt: expiresAt.toISOString(),
+    uploadHeaders: { 'Content-Type': PDF_CONTENT_TYPE },
   });
 });
 

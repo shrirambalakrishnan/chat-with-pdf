@@ -15,7 +15,6 @@ function vertexClient(location) {
     vertexai: true,
     project: config.gcp.projectId,
     location,
-    googleAuthOptions: { keyFilename: config.gcp.credentialsPath },
   });
 }
 

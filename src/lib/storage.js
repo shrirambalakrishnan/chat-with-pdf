@@ -3,7 +3,6 @@ const config = require('../config');
 
 const storage = new Storage({
   projectId: config.gcp.projectId,
-  keyFilename: config.gcp.credentialsPath,
 });
 
 const bucket = storage.bucket(config.gcp.bucketName);
