@@ -102,6 +102,71 @@ Check it is up:
 curl http://localhost:3000/health   # {"status":"ok"}
 ```
 
+## Deploy
+
+The service runs on Cloud Run as `chat-with-pdf` in `us-central1`, the same region as Firestore and
+Vertex AI. Cloud Build builds the image from the `Dockerfile`, so Docker is not needed locally.
+
+### One-time setup
+
+Enable the APIs:
+
+```sh
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
+  --project <project-id>
+```
+
+Create the service account the service runs as, and give it the roles from
+[Prerequisites](#prerequisites):
+
+```sh
+gcloud iam service-accounts create chat-with-pdf-run --project <project-id>
+
+SA=serviceAccount:chat-with-pdf-run@<project-id>.iam.gserviceaccount.com
+gcloud storage buckets add-iam-policy-binding gs://<bucket-name> --member $SA --role roles/storage.objectAdmin
+gcloud projects add-iam-policy-binding <project-id> --member $SA --role roles/datastore.user
+gcloud projects add-iam-policy-binding <project-id> --member $SA --role roles/aiplatform.user
+```
+
+### Deploy a new version
+
+From the repo root, with your Google account logged in (`gcloud auth login`):
+
+```sh
+gcloud run deploy chat-with-pdf \
+  --source . \
+  --project <project-id> \
+  --region us-central1 \
+  --service-account chat-with-pdf-run@<project-id>.iam.gserviceaccount.com \
+  --env-vars-file env.cloudrun.yaml \
+  --no-allow-unauthenticated
+```
+
+The environment variables come from `env.cloudrun.yaml` (the same variables as `.env`, minus `PORT`,
+which Cloud Run sets). Edit it and redeploy to change config. `.gcloudignore` keeps `.env`, keys and
+sample PDFs out of the upload.
+
+The service uses Cloud Run's defaults: 300s request timeout, 512 MiB memory, 1 vCPU, 80 concurrent
+requests per instance, and 0 to 100 instances. `/extract` runs in the request, so a very large PDF
+may need a longer timeout.
+
+### Call the deployed service
+
+The service is private: Cloud Run rejects any request without a Google identity token (`403`)
+before it reaches the app. A project owner can invoke it; anyone else needs `roles/run.invoker`.
+Send the token in the `Authorization` header, alongside `X-User-Id`:
+
+```sh
+URL=$(gcloud run services describe chat-with-pdf --region us-central1 --format 'value(status.url)')
+TOKEN=$(gcloud auth print-identity-token)
+
+curl -H "Authorization: Bearer $TOKEN" $URL/health   # {"status":"ok"}
+```
+
+The [walkthrough](#walkthrough-upload-a-pdf-end-to-end) works the same way: use `$URL` instead of
+`http://localhost:3000` and add the `Authorization` header to every call except the `PUT` to the
+upload URL, which goes to Cloud Storage.
+
 ## Data model
 
 ### `users` collection
