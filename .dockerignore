@@ -1,0 +1,7 @@
+# Only package files and src/ are copied into the image; keep secrets and
+# local files out of the build context anyway.
+.git
+node_modules/
+.env
+service-account-key.json
+sample-pdfs/
