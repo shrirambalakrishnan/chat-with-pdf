@@ -77,5 +77,9 @@ TOKEN=$(gcloud auth print-identity-token)
 curl -H "Authorization: Bearer $TOKEN" $URL/health   # {"status":"ok"}
 ```
 
+The deployed service reads users from the same Firestore database, so the seed user must exist
+before any call that sends `X-User-Id`, or every call returns `403`. If you haven't created it yet,
+follow [Seed user](run-locally.md#seed-user).
+
 With `URL` and `TOKEN` set like this, run the [walkthrough](testing.md)
 from `FILE=` on. The token expires after an hour; set `TOKEN` again if calls start returning `401`.
