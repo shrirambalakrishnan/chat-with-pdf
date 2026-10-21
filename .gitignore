@@ -7,3 +7,6 @@ node_modules/
 service-account-key.json
 
 sample-pdfs/
+
+# Cloud Run environment variables, copied from env.cloudrun.example.yaml
+env.cloudrun.yaml

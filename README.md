@@ -143,8 +143,9 @@ gcloud run deploy chat-with-pdf \
 ```
 
 The environment variables come from `env.cloudrun.yaml` (the same variables as `.env`, minus `PORT`,
-which Cloud Run sets). Edit it and redeploy to change config. `.gcloudignore` keeps `.env`, keys and
-sample PDFs out of the upload.
+which Cloud Run sets). It is not committed: copy `env.cloudrun.example.yaml` to `env.cloudrun.yaml`
+and fill in the values. Edit it and redeploy to change config. `.gcloudignore` keeps `.env`,
+`env.cloudrun.yaml`, keys and sample PDFs out of the upload.
 
 The service uses Cloud Run's defaults: 300s request timeout, 512 MiB memory, 1 vCPU, 80 concurrent
 requests per instance, and 0 to 100 instances. `/extract` runs in the request, so a very large PDF
