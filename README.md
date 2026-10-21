@@ -2,7 +2,9 @@
 
 Upload your PDF and chat with it!
 
-Answers to your questions will be grounded to the document you have uploaded!
+Answers to your questions will be grounded in the document you have uploaded, with page citations!
+
+Version 1 is an API only: no UI yet.
 
 ## Screenshot
 ![ChatResponseScreenshot](docs/assets/ChatResponseScreenshotV0.png)
