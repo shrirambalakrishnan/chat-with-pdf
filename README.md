@@ -4,52 +4,87 @@ Upload your PDF and chat with it!
 
 Answers to your questions will be grounded to the document you have uploaded!
 
-## Setup
+## Prerequisites
 
-### Prerequisites
+### Tools
 
 - Node **v26.2.0** and npm **11.13.0** (enforced — `npm install` fails on other versions)
 - The [`gcloud` CLI](https://cloud.google.com/sdk/docs/install)
-- A GCP project with:
-  - a Cloud Storage bucket
-  - a Firestore database
-  - the Vertex AI API enabled, to call the embedding and chat models:
+- [`jq`](https://jqlang.org/), for the walkthrough
+- A GCP project with billing enabled
 
-    ```sh
-    gcloud services enable aiplatform.googleapis.com --project <project-id>
-    ```
+### GCP setup
 
-  - these roles for the account the service runs as (your Google account locally, see
-    [Credentials](#credentials)). A project owner already has them:
-    - `Storage Object Admin` (`roles/storage.objectAdmin`) on the bucket: object read/write/delete
-    - `Cloud Datastore User` (`roles/datastore.user`): Firestore read/write
-    - `Vertex AI User` (`roles/aiplatform.user`)
+One time, per project. The bucket, Firestore and Cloud Run all go in `us-central1`.
 
-    ```sh
-    gcloud storage buckets add-iam-policy-binding gs://<bucket-name> \
-      --member <member> --role roles/storage.objectAdmin
-    gcloud projects add-iam-policy-binding <project-id> --member <member> --role roles/datastore.user
-    gcloud projects add-iam-policy-binding <project-id> --member <member> --role roles/aiplatform.user
-    ```
+1. Log in and select the project, so later commands default to it:
 
-    where `<member>` is `user:<your-email>` or `serviceAccount:<service-account-email>`.
+   ```sh
+   gcloud auth login
+   gcloud config set project <project-id>
+   ```
 
-  - a composite vector index on the `chunks` collection, which retrieval needs to search the chunks
-    of one document. The dimension must match `EMBEDDING_DIMENSIONS`:
+2. Enable Cloud Storage, Firestore and Vertex AI (for the embedding and chat models):
 
-    ```sh
-    gcloud firestore indexes composite create \
-      --project <project-id> \
-      --database <database-id> \
-      --collection-group chunks \
-      --query-scope collection \
-      --field-config field-path=ownerId,order=ascending \
-      --field-config field-path=documentId,order=ascending \
-      --field-config field-path=embedding,vector-config='{"dimension":"768","flat":"{}"}'
-    ```
+   ```sh
+   gcloud services enable storage.googleapis.com firestore.googleapis.com aiplatform.googleapis.com
+   ```
 
-    The index takes a few minutes to build. Check it with
-    `gcloud firestore indexes composite list --project <project-id> --database <database-id>`.
+3. Create a private bucket for the uploaded PDFs:
+
+   ```sh
+   gcloud storage buckets create gs://<bucket-name> \
+     --location us-central1 \
+     --uniform-bucket-level-access \
+     --public-access-prevention
+   ```
+
+4. Create the Firestore database. Its location can't be changed later:
+
+   ```sh
+   gcloud firestore databases create --database "(default)" --location us-central1
+   ```
+
+5. Create the composite vector index on the `chunks` collection, which retrieval needs to search the
+   chunks of one document. The dimension must match `EMBEDDING_DIMENSIONS`:
+
+   ```sh
+   gcloud firestore indexes composite create \
+     --database "(default)" \
+     --collection-group chunks \
+     --query-scope collection \
+     --field-config field-path=ownerId,order=ascending \
+     --field-config field-path=documentId,order=ascending \
+     --field-config field-path=embedding,vector-config='{"dimension":"768","flat":"{}"}'
+   ```
+
+   The index takes a few minutes to build. Chat fails until its state is `READY`:
+
+   ```sh
+   gcloud firestore indexes composite list --database "(default)"
+   ```
+
+6. Grant these roles to the account the service runs as (your Google account locally, see
+   [Credentials](#credentials)). A project owner already has them, so skip this step if you own the
+   project:
+   - `Storage Object Admin` (`roles/storage.objectAdmin`) on the bucket: object read/write/delete
+   - `Cloud Datastore User` (`roles/datastore.user`): Firestore read/write
+   - `Vertex AI User` (`roles/aiplatform.user`)
+
+   ```sh
+   gcloud storage buckets add-iam-policy-binding gs://<bucket-name> \
+     --member <member> --role roles/storage.objectAdmin
+   gcloud projects add-iam-policy-binding <project-id> --member <member> --role roles/datastore.user
+   gcloud projects add-iam-policy-binding <project-id> --member <member> --role roles/aiplatform.user
+   ```
+
+   where `<member>` is `user:<your-email>` or `serviceAccount:<service-account-email>`.
+
+## Run locally
+
+Run these steps in order, from the repo root, after the [prerequisites](#prerequisites).
+
+### Install
 
 ```sh
 nvm use        # picks v26.2.0 from .nvmrc
@@ -89,6 +124,21 @@ Copy `.env.example` to `.env` and fill in every value:
 
 The service refuses to start if any required variable is missing, and names the missing ones.
 
+### Seed user
+
+Until auth exists, every document belongs to a single seed user. Its `id`, `name` and `email` live in
+`scripts/seed-user/seed-user.json`. That file is for seeding only — application code reads users from
+Firestore, never from this file.
+
+With `.env` in place and logged in (see [Credentials](#credentials)), create the seed user:
+
+```sh
+npm run seed:user
+```
+
+This creates `users/{id}` using the `id` from the config file as the document id. It is safe to re-run:
+if the user already exists it is left unchanged.
+
 ### Run
 
 ```sh
@@ -100,6 +150,51 @@ Check it is up:
 
 ```sh
 curl http://localhost:3000/health   # {"status":"ok"}
+```
+
+### Walkthrough: upload a PDF end to end
+
+With the server running and the seed user created. `URL` and `TOKEN` point the calls at the local
+server; set them as in [Call the deployed service](#call-the-deployed-service) to run the same steps
+against Cloud Run.
+
+```sh
+URL=http://localhost:3000
+TOKEN=                              # not needed locally
+FILE=~/Downloads/report.pdf         # path to your PDF
+SIZE=$(wc -c < "$FILE" | tr -d ' ')
+
+# 1. Ask for an upload URL
+RESPONSE=$(curl -s -X POST "$URL/documents" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'X-User-Id: seed-user' \
+  -d "{\"filename\": \"$(basename "$FILE")\", \"contentType\": \"application/pdf\", \"size\": $SIZE}")
+echo "$RESPONSE" | jq .
+DOCUMENT_ID=$(echo "$RESPONSE" | jq -r .documentId)
+UPLOAD_URL=$(echo "$RESPONSE" | jq -r .uploadUrl)
+
+# 2. Upload the file straight to Cloud Storage (no Authorization header); prints 200
+curl -s -o /dev/null -w "%{http_code}\n" -X PUT "$UPLOAD_URL" \
+  -H 'Content-Type: application/pdf' \
+  --upload-file "$FILE"
+
+# 3. Confirm the upload; status becomes "uploaded"
+curl -s -X POST "$URL/documents/$DOCUMENT_ID/complete" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'X-User-Id: seed-user' | jq .
+
+# 4. Extract, chunk and embed the text; status becomes "ready"
+curl -s -X POST "$URL/documents/$DOCUMENT_ID/extract" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'X-User-Id: seed-user' | jq .
+
+# 5. Ask a question; returns an answer with page citations and its sources
+curl -s -X POST "$URL/documents/$DOCUMENT_ID/chat" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'X-User-Id: seed-user' \
+  -d '{"message": "What does the report recommend?"}' | jq .
 ```
 
 ## Deploy
@@ -128,9 +223,28 @@ gcloud projects add-iam-policy-binding <project-id> --member $SA --role roles/da
 gcloud projects add-iam-policy-binding <project-id> --member $SA --role roles/aiplatform.user
 ```
 
+Let Cloud Build build the image. `gcloud run deploy --source` builds as the default compute service
+account, `<project-number>-compute@developer.gserviceaccount.com`, which needs the Cloud Run Builder
+role:
+
+```sh
+PROJECT_NUMBER=$(gcloud projects describe <project-id> --format 'value(projectNumber)')
+gcloud projects add-iam-policy-binding <project-id> \
+  --member serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com \
+  --role roles/run.builder
+```
+
 ### Deploy a new version
 
-From the repo root, with your Google account logged in (`gcloud auth login`):
+The service's environment variables come from `env.cloudrun.yaml` (the same variables as `.env`,
+minus `PORT`, which Cloud Run sets). It is not committed. The first time, copy the template and fill
+in the values:
+
+```sh
+cp env.cloudrun.example.yaml env.cloudrun.yaml
+```
+
+Then, from the repo root, with your Google account logged in (`gcloud auth login`):
 
 ```sh
 gcloud run deploy chat-with-pdf \
@@ -142,9 +256,8 @@ gcloud run deploy chat-with-pdf \
   --no-allow-unauthenticated
 ```
 
-The environment variables come from `env.cloudrun.yaml` (the same variables as `.env`, minus `PORT`,
-which Cloud Run sets). Edit it and redeploy to change config. `.gcloudignore` keeps `.env`, keys and
-sample PDFs out of the upload.
+To change config, edit `env.cloudrun.yaml` and redeploy. `.gcloudignore` keeps `.env`,
+`env.cloudrun.yaml`, keys and sample PDFs out of the upload.
 
 The service uses Cloud Run's defaults: 300s request timeout, 512 MiB memory, 1 vCPU, 80 concurrent
 requests per instance, and 0 to 100 instances. `/extract` runs in the request, so a very large PDF
@@ -163,9 +276,8 @@ TOKEN=$(gcloud auth print-identity-token)
 curl -H "Authorization: Bearer $TOKEN" $URL/health   # {"status":"ok"}
 ```
 
-The [walkthrough](#walkthrough-upload-a-pdf-end-to-end) works the same way: use `$URL` instead of
-`http://localhost:3000` and add the `Authorization` header to every call except the `PUT` to the
-upload URL, which goes to Cloud Storage.
+With `URL` and `TOKEN` set like this, run the [walkthrough](#walkthrough-upload-a-pdf-end-to-end)
+from `FILE=` on. The token expires after an hour; set `TOKEN` again if calls start returning `401`.
 
 ## Data model
 
@@ -401,21 +513,6 @@ npm run rag:ask -- seed-user test-doc "What was the revenue last year?"
 # ...
 ```
 
-## Seed user
-
-Until auth exists, every document belongs to a single seed user. Its `id`, `name` and `email` live in
-`scripts/seed-user/seed-user.json`. That file is for seeding only — application code reads users from
-Firestore, never from this file.
-
-With `.env` in place and logged in (see [Credentials](#credentials)), create the seed user:
-
-```sh
-npm run seed:user
-```
-
-This creates `users/{id}` using the `id` from the config file as the document id. It is safe to re-run:
-if the user already exists it is left unchanged.
-
 ## API
 
 Until auth exists, the caller is identified by the `X-User-Id` header, which must match a document in
@@ -618,39 +715,3 @@ Chat lives in `src/chat/`, with the same split as `src/uploads/` and `src/extrac
 | --- | --- |
 | `chatWithDocument.js` | Core: checks the document is `ready`, calls `askPdf` with the RAG dependencies from `src/lib/rag.js`. No HTTP or auth. |
 | `chatRoute.js` | This endpoint: validates the body, checks the user and ownership, calls the core, maps the result to a status code. Mounted with one line in `src/app.js`. |
-
-### Walkthrough: upload a PDF end to end
-
-Requires [`jq`](https://jqlang.org/). With the server running and the seed user created:
-
-```sh
-FILE=report.pdf
-SIZE=$(wc -c < "$FILE" | tr -d ' ')
-
-# 1. Ask for an upload URL
-RESPONSE=$(curl -s -X POST http://localhost:3000/documents \
-  -H 'Content-Type: application/json' \
-  -H 'X-User-Id: seed-user' \
-  -d "{\"filename\": \"$FILE\", \"contentType\": \"application/pdf\", \"size\": $SIZE}")
-DOCUMENT_ID=$(echo "$RESPONSE" | jq -r .documentId)
-UPLOAD_URL=$(echo "$RESPONSE" | jq -r .uploadUrl)
-
-# 2. Upload the file straight to Cloud Storage
-curl -X PUT "$UPLOAD_URL" \
-  -H 'Content-Type: application/pdf' \
-  --upload-file "$FILE"
-
-# 3. Confirm the upload; status becomes "uploaded"
-curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/complete" \
-  -H 'X-User-Id: seed-user'
-
-# 4. Extract, chunk and embed the text; status becomes "ready"
-curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/extract" \
-  -H 'X-User-Id: seed-user'
-
-# 5. Ask a question; returns an answer with page citations and its sources
-curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/chat" \
-  -H 'Content-Type: application/json' \
-  -H 'X-User-Id: seed-user' \
-  -d '{"message": "What does the report recommend?"}'
-```

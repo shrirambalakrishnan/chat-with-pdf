@@ -5,3 +5,8 @@ node_modules/
 
 # Service account key, if one is used instead of ADC
 service-account-key.json
+
+sample-pdfs/
+
+# Cloud Run environment variables, copied from env.cloudrun.example.yaml
+env.cloudrun.yaml
