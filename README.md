@@ -8,6 +8,7 @@ Answers to your questions will be grounded to the document you have uploaded!
 
 - [Prerequisites](docs/prerequisites.md)
 - [Run locally](docs/run-locally.md)
+- [Testing](docs/testing.md)
 - [Deploy](docs/deploy.md)
 - [Data model](docs/data-model.md)
 - [RAG](docs/rag.md)

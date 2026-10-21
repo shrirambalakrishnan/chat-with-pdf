@@ -77,5 +77,5 @@ TOKEN=$(gcloud auth print-identity-token)
 curl -H "Authorization: Bearer $TOKEN" $URL/health   # {"status":"ok"}
 ```
 
-With `URL` and `TOKEN` set like this, run the [walkthrough](run-locally.md#walkthrough-upload-a-pdf-end-to-end)
+With `URL` and `TOKEN` set like this, run the [walkthrough](testing.md)
 from `FILE=` on. The token expires after an hour; set `TOKEN` again if calls start returning `401`.
