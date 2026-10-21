@@ -214,6 +214,17 @@ gcloud projects add-iam-policy-binding <project-id> --member $SA --role roles/da
 gcloud projects add-iam-policy-binding <project-id> --member $SA --role roles/aiplatform.user
 ```
 
+Let Cloud Build build the image. `gcloud run deploy --source` builds as the default compute service
+account, `<project-number>-compute@developer.gserviceaccount.com`, which needs the Cloud Run Builder
+role:
+
+```sh
+PROJECT_NUMBER=$(gcloud projects describe <project-id> --format 'value(projectNumber)')
+gcloud projects add-iam-policy-binding <project-id> \
+  --member serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com \
+  --role roles/run.builder
+```
+
 ### Deploy a new version
 
 From the repo root, with your Google account logged in (`gcloud auth login`):
