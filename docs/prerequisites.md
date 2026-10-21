@@ -59,7 +59,7 @@ One time, per project. The bucket, Firestore and Cloud Run all go in `us-central
    ```
 
 6. Grant these roles to the account the service runs as (your Google account locally, see
-   [Credentials](../README.md#credentials)). A project owner already has them, so skip this step if you own the
+   [Credentials](run-locally.md#credentials)). A project owner already has them, so skip this step if you own the
    project:
    - `Storage Object Admin` (`roles/storage.objectAdmin`) on the bucket: object read/write/delete
    - `Cloud Datastore User` (`roles/datastore.user`): Firestore read/write
