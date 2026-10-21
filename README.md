@@ -227,7 +227,15 @@ gcloud projects add-iam-policy-binding <project-id> \
 
 ### Deploy a new version
 
-From the repo root, with your Google account logged in (`gcloud auth login`):
+The service's environment variables come from `env.cloudrun.yaml` (the same variables as `.env`,
+minus `PORT`, which Cloud Run sets). It is not committed. The first time, copy the template and fill
+in the values:
+
+```sh
+cp env.cloudrun.example.yaml env.cloudrun.yaml
+```
+
+Then, from the repo root, with your Google account logged in (`gcloud auth login`):
 
 ```sh
 gcloud run deploy chat-with-pdf \
@@ -239,9 +247,7 @@ gcloud run deploy chat-with-pdf \
   --no-allow-unauthenticated
 ```
 
-The environment variables come from `env.cloudrun.yaml` (the same variables as `.env`, minus `PORT`,
-which Cloud Run sets). It is not committed: copy `env.cloudrun.example.yaml` to `env.cloudrun.yaml`
-and fill in the values. Edit it and redeploy to change config. `.gcloudignore` keeps `.env`,
+To change config, edit `env.cloudrun.yaml` and redeploy. `.gcloudignore` keeps `.env`,
 `env.cloudrun.yaml`, keys and sample PDFs out of the upload.
 
 The service uses Cloud Run's defaults: 300s request timeout, 512 MiB memory, 1 vCPU, 80 concurrent
