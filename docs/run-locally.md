@@ -73,7 +73,7 @@ curl http://localhost:3000/health   # {"status":"ok"}
 ## Walkthrough: upload a PDF end to end
 
 With the server running and the seed user created. `URL` and `TOKEN` point the calls at the local
-server; set them as in [Call the deployed service](../README.md#call-the-deployed-service) to run the same steps
+server; set them as in [Call the deployed service](deploy.md#call-the-deployed-service) to run the same steps
 against Cloud Run.
 
 ```sh
