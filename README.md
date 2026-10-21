@@ -4,85 +4,13 @@ Upload your PDF and chat with it!
 
 Answers to your questions will be grounded to the document you have uploaded!
 
-## Prerequisites
+## Documentation
 
-### Tools
-
-- Node **v26.2.0** and npm **11.13.0** (enforced — `npm install` fails on other versions)
-- The [`gcloud` CLI](https://cloud.google.com/sdk/docs/install)
-- [`jq`](https://jqlang.org/), for the walkthrough
-- A GCP project with billing enabled
-
-### GCP setup
-
-One time, per project. The bucket, Firestore and Cloud Run all go in `us-central1`.
-
-1. Log in and select the project, so later commands default to it:
-
-   ```sh
-   gcloud auth login
-   gcloud config set project <project-id>
-   ```
-
-2. Enable Cloud Storage, Firestore and Vertex AI (for the embedding and chat models):
-
-   ```sh
-   gcloud services enable storage.googleapis.com firestore.googleapis.com aiplatform.googleapis.com
-   ```
-
-3. Create a private bucket for the uploaded PDFs:
-
-   ```sh
-   gcloud storage buckets create gs://<bucket-name> \
-     --location us-central1 \
-     --uniform-bucket-level-access \
-     --public-access-prevention
-   ```
-
-4. Create the Firestore database. Its location can't be changed later:
-
-   ```sh
-   gcloud firestore databases create --database "(default)" --location us-central1
-   ```
-
-5. Create the composite vector index on the `chunks` collection, which retrieval needs to search the
-   chunks of one document. The dimension must match `EMBEDDING_DIMENSIONS`:
-
-   ```sh
-   gcloud firestore indexes composite create \
-     --database "(default)" \
-     --collection-group chunks \
-     --query-scope collection \
-     --field-config field-path=ownerId,order=ascending \
-     --field-config field-path=documentId,order=ascending \
-     --field-config field-path=embedding,vector-config='{"dimension":"768","flat":"{}"}'
-   ```
-
-   The index takes a few minutes to build. Chat fails until its state is `READY`:
-
-   ```sh
-   gcloud firestore indexes composite list --database "(default)"
-   ```
-
-6. Grant these roles to the account the service runs as (your Google account locally, see
-   [Credentials](#credentials)). A project owner already has them, so skip this step if you own the
-   project:
-   - `Storage Object Admin` (`roles/storage.objectAdmin`) on the bucket: object read/write/delete
-   - `Cloud Datastore User` (`roles/datastore.user`): Firestore read/write
-   - `Vertex AI User` (`roles/aiplatform.user`)
-
-   ```sh
-   gcloud storage buckets add-iam-policy-binding gs://<bucket-name> \
-     --member <member> --role roles/storage.objectAdmin
-   gcloud projects add-iam-policy-binding <project-id> --member <member> --role roles/datastore.user
-   gcloud projects add-iam-policy-binding <project-id> --member <member> --role roles/aiplatform.user
-   ```
-
-   where `<member>` is `user:<your-email>` or `serviceAccount:<service-account-email>`.
+- [Prerequisites](docs/prerequisites.md)
 
 ## Run locally
 
-Run these steps in order, from the repo root, after the [prerequisites](#prerequisites).
+Run these steps in order, from the repo root, after the [prerequisites](docs/prerequisites.md).
 
 ### Install
 
@@ -212,7 +140,7 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregi
 ```
 
 Create the service account the service runs as, and give it the roles from
-[Prerequisites](#prerequisites):
+[Prerequisites](docs/prerequisites.md):
 
 ```sh
 gcloud iam service-accounts create chat-with-pdf-run --project <project-id>
@@ -397,7 +325,7 @@ const chunks = await vectorStore.query(vector, { ownerId, documentId }, TOP_K);
    (the embeddings are not normalized yet, #19). Lower `distance` is nearer. There is no similarity
    threshold, so the `topK` nearest chunks are always returned, even if none of them is relevant.
 
-The query needs the composite vector index from [Prerequisites](#prerequisites); without it Firestore
+The query needs the composite vector index from [Prerequisites](docs/prerequisites.md); without it Firestore
 rejects the query.
 
 ### Generation
