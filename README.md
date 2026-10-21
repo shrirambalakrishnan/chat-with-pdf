@@ -154,38 +154,47 @@ curl http://localhost:3000/health   # {"status":"ok"}
 
 ### Walkthrough: upload a PDF end to end
 
-Requires [`jq`](https://jqlang.org/). With the server running and the seed user created:
+With the server running and the seed user created. `URL` and `TOKEN` point the calls at the local
+server; set them as in [Call the deployed service](#call-the-deployed-service) to run the same steps
+against Cloud Run.
 
 ```sh
-FILE=report.pdf
+URL=http://localhost:3000
+TOKEN=                              # not needed locally
+FILE=~/Downloads/report.pdf         # path to your PDF
 SIZE=$(wc -c < "$FILE" | tr -d ' ')
 
 # 1. Ask for an upload URL
-RESPONSE=$(curl -s -X POST http://localhost:3000/documents \
+RESPONSE=$(curl -s -X POST "$URL/documents" \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -H 'X-User-Id: seed-user' \
-  -d "{\"filename\": \"$FILE\", \"contentType\": \"application/pdf\", \"size\": $SIZE}")
+  -d "{\"filename\": \"$(basename "$FILE")\", \"contentType\": \"application/pdf\", \"size\": $SIZE}")
+echo "$RESPONSE" | jq .
 DOCUMENT_ID=$(echo "$RESPONSE" | jq -r .documentId)
 UPLOAD_URL=$(echo "$RESPONSE" | jq -r .uploadUrl)
 
-# 2. Upload the file straight to Cloud Storage
-curl -X PUT "$UPLOAD_URL" \
+# 2. Upload the file straight to Cloud Storage (no Authorization header); prints 200
+curl -s -o /dev/null -w "%{http_code}\n" -X PUT "$UPLOAD_URL" \
   -H 'Content-Type: application/pdf' \
   --upload-file "$FILE"
 
 # 3. Confirm the upload; status becomes "uploaded"
-curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/complete" \
-  -H 'X-User-Id: seed-user'
+curl -s -X POST "$URL/documents/$DOCUMENT_ID/complete" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'X-User-Id: seed-user' | jq .
 
 # 4. Extract, chunk and embed the text; status becomes "ready"
-curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/extract" \
-  -H 'X-User-Id: seed-user'
+curl -s -X POST "$URL/documents/$DOCUMENT_ID/extract" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'X-User-Id: seed-user' | jq .
 
 # 5. Ask a question; returns an answer with page citations and its sources
-curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/chat" \
+curl -s -X POST "$URL/documents/$DOCUMENT_ID/chat" \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -H 'X-User-Id: seed-user' \
-  -d '{"message": "What does the report recommend?"}'
+  -d '{"message": "What does the report recommend?"}' | jq .
 ```
 
 ## Deploy
@@ -267,9 +276,8 @@ TOKEN=$(gcloud auth print-identity-token)
 curl -H "Authorization: Bearer $TOKEN" $URL/health   # {"status":"ok"}
 ```
 
-The [walkthrough](#walkthrough-upload-a-pdf-end-to-end) works the same way: use `$URL` instead of
-`http://localhost:3000` and add the `Authorization` header to every call except the `PUT` to the
-upload URL, which goes to Cloud Storage.
+With `URL` and `TOKEN` set like this, run the [walkthrough](#walkthrough-upload-a-pdf-end-to-end)
+from `FILE=` on. The token expires after an hour; set `TOKEN` again if calls start returning `401`.
 
 ## Data model
 
