@@ -4,9 +4,7 @@ Upload your PDF and chat with it!
 
 Answers to your questions will be grounded to the document you have uploaded!
 
-## Setup
-
-### Prerequisites
+## Prerequisites
 
 - Node **v26.2.0** and npm **11.13.0** (enforced — `npm install` fails on other versions)
 - The [`gcloud` CLI](https://cloud.google.com/sdk/docs/install)
@@ -51,6 +49,12 @@ Answers to your questions will be grounded to the document you have uploaded!
     The index takes a few minutes to build. Check it with
     `gcloud firestore indexes composite list --project <project-id> --database <database-id>`.
 
+## Run locally
+
+Run these steps in order, from the repo root, after the [prerequisites](#prerequisites).
+
+### Install
+
 ```sh
 nvm use        # picks v26.2.0 from .nvmrc
 npm install
@@ -89,6 +93,21 @@ Copy `.env.example` to `.env` and fill in every value:
 
 The service refuses to start if any required variable is missing, and names the missing ones.
 
+### Seed user
+
+Until auth exists, every document belongs to a single seed user. Its `id`, `name` and `email` live in
+`scripts/seed-user/seed-user.json`. That file is for seeding only — application code reads users from
+Firestore, never from this file.
+
+With `.env` in place and logged in (see [Credentials](#credentials)), create the seed user:
+
+```sh
+npm run seed:user
+```
+
+This creates `users/{id}` using the `id` from the config file as the document id. It is safe to re-run:
+if the user already exists it is left unchanged.
+
 ### Run
 
 ```sh
@@ -100,6 +119,42 @@ Check it is up:
 
 ```sh
 curl http://localhost:3000/health   # {"status":"ok"}
+```
+
+### Walkthrough: upload a PDF end to end
+
+Requires [`jq`](https://jqlang.org/). With the server running and the seed user created:
+
+```sh
+FILE=report.pdf
+SIZE=$(wc -c < "$FILE" | tr -d ' ')
+
+# 1. Ask for an upload URL
+RESPONSE=$(curl -s -X POST http://localhost:3000/documents \
+  -H 'Content-Type: application/json' \
+  -H 'X-User-Id: seed-user' \
+  -d "{\"filename\": \"$FILE\", \"contentType\": \"application/pdf\", \"size\": $SIZE}")
+DOCUMENT_ID=$(echo "$RESPONSE" | jq -r .documentId)
+UPLOAD_URL=$(echo "$RESPONSE" | jq -r .uploadUrl)
+
+# 2. Upload the file straight to Cloud Storage
+curl -X PUT "$UPLOAD_URL" \
+  -H 'Content-Type: application/pdf' \
+  --upload-file "$FILE"
+
+# 3. Confirm the upload; status becomes "uploaded"
+curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/complete" \
+  -H 'X-User-Id: seed-user'
+
+# 4. Extract, chunk and embed the text; status becomes "ready"
+curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/extract" \
+  -H 'X-User-Id: seed-user'
+
+# 5. Ask a question; returns an answer with page citations and its sources
+curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/chat" \
+  -H 'Content-Type: application/json' \
+  -H 'X-User-Id: seed-user' \
+  -d '{"message": "What does the report recommend?"}'
 ```
 
 ## Deploy
@@ -402,21 +457,6 @@ npm run rag:ask -- seed-user test-doc "What was the revenue last year?"
 # ...
 ```
 
-## Seed user
-
-Until auth exists, every document belongs to a single seed user. Its `id`, `name` and `email` live in
-`scripts/seed-user/seed-user.json`. That file is for seeding only — application code reads users from
-Firestore, never from this file.
-
-With `.env` in place and logged in (see [Credentials](#credentials)), create the seed user:
-
-```sh
-npm run seed:user
-```
-
-This creates `users/{id}` using the `id` from the config file as the document id. It is safe to re-run:
-if the user already exists it is left unchanged.
-
 ## API
 
 Until auth exists, the caller is identified by the `X-User-Id` header, which must match a document in
@@ -619,39 +659,3 @@ Chat lives in `src/chat/`, with the same split as `src/uploads/` and `src/extrac
 | --- | --- |
 | `chatWithDocument.js` | Core: checks the document is `ready`, calls `askPdf` with the RAG dependencies from `src/lib/rag.js`. No HTTP or auth. |
 | `chatRoute.js` | This endpoint: validates the body, checks the user and ownership, calls the core, maps the result to a status code. Mounted with one line in `src/app.js`. |
-
-### Walkthrough: upload a PDF end to end
-
-Requires [`jq`](https://jqlang.org/). With the server running and the seed user created:
-
-```sh
-FILE=report.pdf
-SIZE=$(wc -c < "$FILE" | tr -d ' ')
-
-# 1. Ask for an upload URL
-RESPONSE=$(curl -s -X POST http://localhost:3000/documents \
-  -H 'Content-Type: application/json' \
-  -H 'X-User-Id: seed-user' \
-  -d "{\"filename\": \"$FILE\", \"contentType\": \"application/pdf\", \"size\": $SIZE}")
-DOCUMENT_ID=$(echo "$RESPONSE" | jq -r .documentId)
-UPLOAD_URL=$(echo "$RESPONSE" | jq -r .uploadUrl)
-
-# 2. Upload the file straight to Cloud Storage
-curl -X PUT "$UPLOAD_URL" \
-  -H 'Content-Type: application/pdf' \
-  --upload-file "$FILE"
-
-# 3. Confirm the upload; status becomes "uploaded"
-curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/complete" \
-  -H 'X-User-Id: seed-user'
-
-# 4. Extract, chunk and embed the text; status becomes "ready"
-curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/extract" \
-  -H 'X-User-Id: seed-user'
-
-# 5. Ask a question; returns an answer with page citations and its sources
-curl -X POST "http://localhost:3000/documents/$DOCUMENT_ID/chat" \
-  -H 'Content-Type: application/json' \
-  -H 'X-User-Id: seed-user' \
-  -d '{"message": "What does the report recommend?"}'
-```
