@@ -78,6 +78,7 @@ flowchart TB
 - [Run locally](docs/run-locally.md)
 - [Testing](docs/testing.md)
 - [Deploy](docs/deploy.md)
+- [Deploy docling](docs/deploy-docling.md)
 - [Data model](docs/data-model.md)
 - [RAG](docs/rag.md)
 - [API](docs/api.md)
