@@ -36,6 +36,7 @@ gcloud run deploy docling \
   --timeout 600 \
   --set-env-vars DOCLING_SERVE_MAX_SYNC_WAIT=600,DOCLING_SERVE_ENG_LOC_NUM_WORKERS=1 \
   --execution-environment gen2 \
+  --max-instances 2 \
   --no-allow-unauthenticated
 ```
 
@@ -49,6 +50,8 @@ gcloud run deploy docling \
 - `gen2`: full Linux compatibility, for the ML libraries.
 - Min instances stays at the default of 0. After the service has been idle, the first call waits
   for a new instance to start and load the models.
+- `--max-instances 2`: caps the cost if something sends many calls at once. Cloud Run's default is
+  100. Calls beyond the cap wait for a free instance.
 
 The first deploy takes several minutes because Cloud Build copies a 2 GB image. To upgrade docling,
 change the tag in `docling/Dockerfile` and redeploy.
