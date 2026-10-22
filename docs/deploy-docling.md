@@ -32,16 +32,18 @@ gcloud run deploy docling \
   --service-account docling-run@<project-id>.iam.gserviceaccount.com \
   --port 5001 \
   --cpu 2 \
-  --memory 8Gi \
+  --memory 4Gi \
   --timeout 600 \
-  --set-env-vars DOCLING_SERVE_MAX_SYNC_WAIT=600 \
+  --set-env-vars DOCLING_SERVE_MAX_SYNC_WAIT=600,DOCLING_SERVE_ENG_LOC_NUM_WORKERS=1 \
   --execution-environment gen2 \
   --no-allow-unauthenticated
 ```
 
 - `--port 5001`: docling-serve listens on `5001` and ignores Cloud Run's `PORT`.
-- 2 vCPU and 8 GiB: docling runs its layout, table and OCR models on the CPU. It uses two worker
-  threads, and each one loads its own copy of the models.
+- 2 vCPU and 4 GiB, with one worker: docling runs its layout, table and OCR models on the CPU, and
+  each worker thread loads its own copy of the models. The app sends one page at a time, so one
+  worker is enough. If an instance runs out of memory, the logs show `Memory limit exceeded`; raise
+  `--memory` to `6Gi`.
 - `--timeout 600` and `DOCLING_SERVE_MAX_SYNC_WAIT=600`: a request can take up to 10 minutes.
   Without the variable, docling-serve stops waiting at 120s, even if Cloud Run's timeout is longer.
 - `gen2`: full Linux compatibility, for the ML libraries.
