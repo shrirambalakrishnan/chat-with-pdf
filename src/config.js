@@ -9,6 +9,7 @@ const REQUIRED_VARS = [
   'EMBEDDING_DIMENSIONS',
   'CHAT_MODEL',
   'CHAT_LOCATION',
+  'DOCLING_URL',
 ];
 
 // Firestore vector fields hold at most 2048 dimensions.
@@ -50,5 +51,8 @@ module.exports = {
   chat: {
     model: process.env.CHAT_MODEL,
     location: process.env.CHAT_LOCATION,
+  },
+  docling: {
+    url: process.env.DOCLING_URL,
   },
 };
