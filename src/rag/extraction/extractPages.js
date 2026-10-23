@@ -1,5 +1,12 @@
 const { extractText } = require('unpdf');
 
+// A page has a text layer when unpdf finds any text on it. A scanned page
+// that also carries stray text (a page number, a "Scanned by" stamp) counts
+// as having one in v1.
+function hasTextLayer(pageText) {
+  return pageText.trim() !== '';
+}
+
 /**
  * Extracts the text of a PDF, one string per page.
  *
@@ -20,7 +27,13 @@ async function extractPages(pdfBuffer) {
 
   const pages = [];
   for (const pageText of pageTexts) {
-    pages.push(pageText);
+    if (hasTextLayer(pageText)) {
+      pages.push(pageText);
+    } else {
+      // No text layer: OCR comes in #50. An empty string keeps the page's slot,
+      // so later pages keep their numbers.
+      pages.push('');
+    }
   }
   return pages;
 }
