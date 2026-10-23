@@ -1,4 +1,4 @@
-const extractPages = require('./extractPages');
+const extractPages = require('./extraction/extractPages');
 const { chunkPages } = require('./chunkPages');
 
 // Deterministic, so re-ingesting a document overwrites its chunks instead of

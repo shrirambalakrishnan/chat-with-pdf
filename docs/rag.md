@@ -9,7 +9,7 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 | --- | --- |
 | `index.js` | The module's public API |
 | `ingestPdf.js` | Runs ingestion for one PDF |
-| `extractPages.js` | Text per page |
+| `extraction/extractPages.js` | Text per page |
 | `chunkPages.js` | Overlapping, page-aware word windows |
 | `embedder.js` | Gemini embedder, one request per chunk, in order, and one per question |
 | `vectorStores/firestore.js` | Vector store on Firestore native vector search |
