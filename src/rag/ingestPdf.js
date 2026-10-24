@@ -12,8 +12,9 @@ const chunkId = (documentId, index) => `${documentId}_${index}`;
  *
  * Knows nothing about HTTP, the documents collection or document status:
  * `ownerId` and `documentId` are only stored on each chunk so retrieval can
- * filter by them. The embedder, vector store and docling client are passed
- * in, so any of them can be swapped without touching this pipeline.
+ * filter by them. The embedder, vector store, docling client and Gemini page
+ * reader are passed in, so any of them can be swapped without touching this
+ * pipeline.
  *
  * Chunks already stored for the document are overwritten through their
  * deterministic ids. Resolves to { pageCount, chunkCount }.
@@ -21,9 +22,9 @@ const chunkId = (documentId, index) => `${documentId}_${index}`;
 async function ingestPdf(
   pdfBuffer,
   { ownerId, documentId },
-  { embedder, vectorStore, docling, chunkWords, overlapWords }
+  { embedder, vectorStore, docling, gemini, chunkWords, overlapWords }
 ) {
-  const pages = await extractPages(pdfBuffer, { docling });
+  const pages = await extractPages(pdfBuffer, { docling, gemini });
   const chunks = chunkPages(pages.map((page) => page.text), { chunkWords, overlapWords });
   if (chunks.length === 0) {
     throw new Error('The PDF has no extractable text');
