@@ -1,12 +1,13 @@
 # Deploy docling
 
-[docling-serve](https://github.com/docling-project/docling-serve) reads pages with complex layouts
-and scanned pages. It runs as a separate private Cloud Run service, `docling`, in `us-central1`, and
-the app calls it over HTTP. Local runs call the same deployed service, so you don't need Docker or
-Python locally.
+[docling-serve](https://github.com/docling-project/docling-serve) reads scanned pages (pages with
+no text layer) with OCR. It runs as a separate private Cloud Run service, `docling`, in
+`us-central1`, and the app calls it over HTTP. Local runs call the same deployed service, so you
+don't need Docker or Python locally.
 
-`docling/Dockerfile` pins docling-serve's CPU image, which already includes RapidOCR. Cloud Run can't
-pull from `ghcr.io`, so Cloud Build copies the image into Artifact Registry.
+`docling/Dockerfile` pins docling-serve's CPU image, which already includes the OCR engines; the app
+uses EasyOCR. Cloud Run can't pull from `ghcr.io`, so Cloud Build copies the image into Artifact
+Registry.
 
 ## One-time setup
 
@@ -87,9 +88,9 @@ curl -s -H "Authorization: Bearer $TOKEN" $DOCLING_URL/v1/convert/file \
   -F files=@<text-page.pdf> -F to_formats=md -F do_ocr=false \
   | jq -r .document.md_content
 
-# RapidOCR
+# EasyOCR
 curl -s -H "Authorization: Bearer $TOKEN" $DOCLING_URL/v1/convert/file \
-  -F files=@<scanned-page.pdf> -F to_formats=md -F do_ocr=true -F ocr_preset=rapidocr \
+  -F files=@<scanned-page.pdf> -F to_formats=md -F do_ocr=true -F ocr_preset=easyocr \
   | jq -r .document.md_content
 ```
 

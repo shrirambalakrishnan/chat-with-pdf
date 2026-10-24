@@ -9,8 +9,8 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 | --- | --- |
 | `index.js` | The module's public API |
 | `ingestPdf.js` | Runs ingestion for one PDF |
-| `extraction/extractPages.js` | Text per page: unpdf's text layer, empty for pages without one |
-| `extraction/doclingClient.js` | docling-serve client: one page of a PDF to markdown. Not called during ingestion yet |
+| `extraction/extractPages.js` | Text per page: unpdf's text layer, or docling OCR for pages without one |
+| `extraction/doclingClient.js` | docling-serve client: one page of a PDF to markdown, with OCR off or with EasyOCR |
 | `chunkPages.js` | Overlapping, page-aware word windows |
 | `embedder.js` | Gemini embedder, one request per chunk, in order, and one per question |
 | `vectorStores/firestore.js` | Vector store on Firestore native vector search |
@@ -22,8 +22,8 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 
 ```
 PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vector store
-              (unpdf,           (200 words,   (gemini-embedding-001,  (Firestore chunks
-               text per page)    30 overlap)   RETRIEVAL_DOCUMENT)     collection)
+              (unpdf; docling   (200 words,   (gemini-embedding-001,  (Firestore chunks
+               OCR for scans)    30 overlap)   RETRIEVAL_DOCUMENT)     collection)
 ```
 
 1. **Extract** each page on its own, so page numbers stay correct for citations:
@@ -32,8 +32,11 @@ PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vect
    - unpdf reads text in the order it is stored in the PDF. Google Docs, Word and LaTeX store it in
      reading order, columns included. PDFs that store it out of order (slides, brochures) come out
      scrambled, tables lose their structure, and captions or sidebars can land out of place.
-   - A page with no text layer (a scan or a photo) comes out empty, for now. A PDF with no text at
-     all is rejected.
+   - A page with no text layer (a scan or a photo) goes to docling with OCR (EasyOCR), one page per
+     request, and comes back as markdown. A PDF where no text could be read at all is rejected.
+   - OCR output isn't checked yet (#53). A misread character can't be told apart from a correct one,
+     especially a digit: RapidOCR, docling's other OCR engine, read "99" as "66" on a sample scan,
+     which is why EasyOCR is used (#50).
 2. **Chunk** into windows of 200 words. Each chunk repeats the last 30 words of the previous one, so
    an idea cut at a chunk edge still appears whole in the next chunk, and words are never cut in
    half. Chunks may cross page breaks and record `pageStart` / `pageEnd` (the pages of their first
@@ -54,16 +57,22 @@ await ingestPdf(pdfBuffer, { ownerId, documentId }, { embedder, vectorStore, doc
 ### Docling client
 
 [docling-serve](https://github.com/docling-project/docling-serve) runs as its own private Cloud Run
-service ([Deploy docling](deploy-docling.md)). Ingestion doesn't call it yet; pages with no text layer
-will use it for OCR (#50). For now only `npm run rag:extract:docling` calls it.
+service ([Deploy docling](deploy-docling.md)). Ingestion calls it for each page with no text layer.
+`npm run rag:extract:docling` also calls it, with OCR off, to compare it with unpdf.
 
-- **Request:** `POST /v1/convert/file` with the whole PDF, `page_range` set to one page,
-  `to_formats=md` and `do_ocr=false`. The PDF is never split.
+- **Request:** `POST /v1/convert/file` with the whole PDF, `page_range` set to one page and
+  `to_formats=md`. With OCR, `do_ocr=true` and `ocr_preset=easyocr`; otherwise `do_ocr=false`. The
+  PDF is never split. Requests run one after another, with no retries yet, so an error fails the
+  ingestion.
 - **Auth:** each request carries an ID token from `getDoclingToken()` (`src/lib/doclingToken.js`):
   the app's service account token from the metadata server on Cloud Run, and
   `gcloud auth print-identity-token` locally.
-- **Time:** about 4 seconds a page once docling is warm. Docling scales to zero when idle, so the
-  first request after a quiet spell waits about 2 minutes for an instance to start.
+- **Time:** about 18 seconds a page with OCR, and about 4–7 seconds without, once docling is warm.
+  Docling scales to zero when idle, so the first request after a quiet spell waits about 2 minutes
+  for an instance to start.
+- **Timeout:** `/extract` runs inside the request, and Cloud Run stops a request after 300 seconds.
+  That fits roughly 15 scanned pages once docling is warm, and fewer after a cold start. Longer
+  scanned PDFs time out. Pages with a text layer don't call docling, so they don't count.
 
 ### Embedding requests
 

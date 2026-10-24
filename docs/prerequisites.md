@@ -74,7 +74,7 @@ One time, per project. The bucket, Firestore and Cloud Run all go in `us-central
 
    where `<member>` is `user:<your-email>` or `serviceAccount:<service-account-email>`.
 
-7. Deploy the docling service. The app sends it pages with complex layouts and scanned pages, both
-   locally and on Cloud Run. Follow [Deploy docling](deploy-docling.md). Locally, the app calls it as
-   your Google account, which needs `roles/run.invoker` on the service. A project owner already has
-   this role.
+7. Deploy the docling service. The app sends it scanned pages (pages with no text layer) for OCR,
+   both locally and on Cloud Run. Follow [Deploy docling](deploy-docling.md). Locally, the app calls
+   it as your Google account, which needs `roles/run.invoker` on the service. A project owner
+   already has this role.
