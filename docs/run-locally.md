@@ -21,6 +21,16 @@ gcloud auth application-default login
 
 On Cloud Run, ADC uses the service account attached to the service.
 
+Calls to the private docling service don't use ADC. Locally, the app runs
+`gcloud auth print-identity-token`, which needs your gcloud CLI login:
+
+```sh
+gcloud auth login
+```
+
+Your account also needs `roles/run.invoker` on the docling service. A project owner already has it;
+see [Deploy docling](deploy-docling.md#let-the-app-call-it).
+
 If `GOOGLE_APPLICATION_CREDENTIALS` is set, in your shell or in `.env`, the libraries read credentials
 from that file instead. Leave it unset unless you mean to use a key file.
 

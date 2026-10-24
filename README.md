@@ -24,7 +24,7 @@ flowchart TB
     subgraph ingest["② Extract & index"]
         direction LR
         i1(["POST /extract"]) --> i2["Download PDF<br/>from Cloud Storage"]
-        i2 --> i3["Extract text per page<br/><i>unpdf</i>"]
+        i2 --> i3["Extract text per page<br/><i>docling</i>"]
         i3 --> i4["Chunk<br/><i>200 words, 30 overlap</i>"]
         i4 --> i5["Embed chunks<br/><i>gemini-embedding-001</i>"]
         i5 --> i6[("Firestore<br/>chunks + vectors<br/><i>ready</i>")]
@@ -61,7 +61,7 @@ flowchart TB
   | Chat / answer generation | Vertex AI `gemini-3.8-flash` |
   | AI SDK | `@google/genai` |
   | Vector store | Firestore vector search (`findNearest`, cosine distance) |
-  | PDF text extraction | [`unpdf`](https://github.com/unjs/unpdf) |
+  | PDF text extraction | [docling-serve](https://github.com/docling-project/docling-serve) on Cloud Run, OCR off; [`unpdf`](https://github.com/unjs/unpdf) to find pages with a text layer |
   | File storage | GCP Cloud Storage |
   | Hosting | GCP Cloud Run |
 
