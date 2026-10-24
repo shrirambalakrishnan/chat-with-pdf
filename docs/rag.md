@@ -194,6 +194,13 @@ npm run rag:extract -- report.pdf
 # 2 pages in <seconds>s
 ```
 
+To compare the two extractors on the same file, each on every page and with no text-layer check:
+
+```sh
+npm run rag:extract:unpdf -- report.pdf     # unpdf's text layer; no env variables needed
+npm run rag:extract:docling -- report.pdf   # docling with OCR off, one call per page
+```
+
 Then ingest it:
 
 ```sh
