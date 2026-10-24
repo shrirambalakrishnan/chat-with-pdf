@@ -39,9 +39,9 @@ PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vect
 
 ```js
 const { ingestPdf } = require('./src/rag');
-const { embedder, vectorStore } = require('./src/lib/rag');
+const { embedder, vectorStore, docling } = require('./src/lib/rag');
 
-await ingestPdf(pdfBuffer, { ownerId, documentId }, { embedder, vectorStore });
+await ingestPdf(pdfBuffer, { ownerId, documentId }, { embedder, vectorStore, docling });
 // → { pageCount, chunkCount }
 ```
 
