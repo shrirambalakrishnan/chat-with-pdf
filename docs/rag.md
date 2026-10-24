@@ -9,8 +9,9 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 | --- | --- |
 | `index.js` | The module's public API |
 | `ingestPdf.js` | Runs ingestion for one PDF |
-| `extraction/extractPages.js` | Text per page: unpdf's text layer, or docling OCR for pages without one |
+| `extraction/extractPages.js` | Text per page: unpdf's text layer, or docling OCR for pages without one, with Gemini when OCR scores low. Holds `MIN_OCR_SCORE` |
 | `extraction/doclingClient.js` | docling-serve client: one page of a PDF to markdown, with OCR off or with EasyOCR, plus docling's OCR confidence |
+| `extraction/geminiPageReader.js` | Gemini page reader: one page of a PDF to markdown, for pages docling's OCR read badly |
 | `chunkPages.js` | Overlapping, page-aware word windows |
 | `embedder.js` | Gemini embedder, one request per chunk, in order, and one per question |
 | `vectorStores/firestore.js` | Vector store on Firestore native vector search |
@@ -23,7 +24,9 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 ```
 PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vector store
               (unpdf; docling   (200 words,   (gemini-embedding-001,  (Firestore chunks
-               OCR for scans)    30 overlap)   RETRIEVAL_DOCUMENT)     collection)
+               OCR for scans,    30 overlap)   RETRIEVAL_DOCUMENT)     collection)
+               Gemini if OCR
+               scores low)
 ```
 
 1. **Extract** each page on its own, so page numbers stay correct for citations:
@@ -36,8 +39,8 @@ PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vect
      request, and comes back as markdown. A PDF where no text could be read at all is rejected.
      EasyOCR is used because RapidOCR, docling's other OCR engine, read "99" as "66" on a sample
      scan (#50).
-   - Each OCR'd page carries docling's [OCR confidence](#ocr-confidence). Nothing acts on it yet:
-     the Gemini fallback that will read low-scoring pages again is #54.
+   - If docling's [OCR confidence](#ocr-confidence) for the page is below 0.8, or missing, the
+     page is read again by [Gemini](#gemini-fallback) and Gemini's text is used instead.
 2. **Chunk** into windows of 200 words. Each chunk repeats the last 30 words of the previous one, so
    an idea cut at a chunk edge still appears whole in the next chunk, and words are never cut in
    half. Chunks may cross page breaks and record `pageStart` / `pageEnd` (the pages of their first
@@ -49,9 +52,9 @@ PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vect
 
 ```js
 const { ingestPdf } = require('./src/rag');
-const { embedder, vectorStore, docling } = require('./src/lib/rag');
+const { embedder, vectorStore, docling, gemini } = require('./src/lib/rag');
 
-await ingestPdf(pdfBuffer, { ownerId, documentId }, { embedder, vectorStore, docling });
+await ingestPdf(pdfBuffer, { ownerId, documentId }, { embedder, vectorStore, docling, gemini });
 // → { pageCount, chunkCount }
 ```
 
@@ -83,8 +86,8 @@ When docling reads a page with OCR, EasyOCR reports how sure it is of each piece
 1. Docling drops text EasyOCR is less than 50% sure of and averages the rest into `ocr_score`, which
 `extractPages` returns as the page's `score`. Text-layer pages have no score.
 
-**Rule:** a page is accepted when its score is **0.8 or higher**. A lower score, or no score, will
-send the page to Gemini (#54). A page has no score when OCR read nothing, for example a Tamil page:
+**Rule:** a page is accepted when its score is **0.8 or higher** (`MIN_OCR_SCORE` in
+`extractPages.js`). A lower score, or no score, sends the page to the [Gemini fallback](#gemini-fallback). A page has no score when OCR read nothing, for example a Tamil page:
 the docling image only has EasyOCR's Latin model. A low score never fails the ingestion.
 
 0.8 is where docling's "good" grade starts. Docling recommends no threshold, and says its numbers
@@ -108,6 +111,30 @@ What it catches and what it doesn't:
 
 So the score is a cheap check for "OCR clearly failed", not a guarantee that the text is right. The
 evidence and the decision are on [#58](https://github.com/shrirambalakrishnan/chat-with-pdf/issues/58).
+
+### Gemini fallback
+
+A page whose OCR confidence is below 0.8, or missing, is read again by the chat model
+(`CHAT_MODEL`, on the `CHAT_LOCATION` client the generator also uses), and its markdown replaces
+docling's. The page keeps its index, so citations stay correct.
+
+- **Input:** Gemini has no page range, so the page is copied into a PDF of its own with `pdf-lib` and
+  sent inline. Gemini reads, and is billed for, that page alone.
+- **Prompt:** return the page's text as markdown, in reading order, with tables as markdown tables,
+  and nothing else. A page with no text comes back empty.
+- **Thinking:** `LOW`. On a blurry sample page the default level took 66 seconds and 3,491 thinking
+  tokens; `LOW` took 6.7 seconds and none, with the same or better text. `MINIMAL` isn't supported
+  by `gemini-3.8-flash`.
+- **Cost:** about 565 input tokens a page, plus the output.
+- **Errors:** a blocked or cut-off answer, or a failed request, fails the ingestion. Calls run one
+  after another with no retries, and Vertex can return `429` (resource exhausted) when many pages
+  fall back in a short time.
+
+On the samples, Gemini read every page docling failed on: blurry scans, and phone photos of
+handwriting that docling returned empty or garbled (EasyOCR doesn't support handwriting). It isn't
+checked either: with default thinking it once read a date as "2023" instead of "2025". And a page
+where docling dropped text but still scored 0.8 or more keeps docling's partial text. The tests and
+decisions are on [#54](https://github.com/shrirambalakrishnan/chat-with-pdf/issues/54).
 
 ### Embedding requests
 
@@ -231,7 +258,10 @@ npm run rag:extract -- report.pdf
 # --- page 2 (docling-ocr, ocr score 0.97) ---
 # <page text read with OCR, as markdown>
 #
-# 2 pages in <seconds>s
+# --- page 3 (docling-ocr, ocr score 0.74 → gemini) ---
+# <page text read again by Gemini, as markdown>
+#
+# 3 pages in <seconds>s
 ```
 
 To compare the two extractors on the same file, each on every page and with no text-layer check:
