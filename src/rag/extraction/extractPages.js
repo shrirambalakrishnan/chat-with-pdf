@@ -33,8 +33,8 @@ async function extractPages(pdfBuffer, { docling }) {
     if (hasTextLayer(pageText)) {
       pages.push({ text: pageText, route: 'unpdf' });
     } else {
-      const text = await docling.convertPage(pdfBuffer, index + 1, { ocr: true });
-      pages.push({ text, route: 'docling-ocr' });
+      const { markdown } = await docling.convertPage(pdfBuffer, index + 1, { ocr: true });
+      pages.push({ text: markdown, route: 'docling-ocr' });
     }
   }
   return pages;

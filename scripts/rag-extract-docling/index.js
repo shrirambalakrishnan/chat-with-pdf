@@ -27,7 +27,8 @@ async function extractWithDocling() {
   const startedAt = Date.now();
   const pages = [];
   for (let pageNumber = 1; pageNumber <= numPages; pageNumber++) {
-    pages.push(await docling.convertPage(pdfBuffer, pageNumber));
+    const { markdown } = await docling.convertPage(pdfBuffer, pageNumber);
+    pages.push(markdown);
   }
   const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
 
