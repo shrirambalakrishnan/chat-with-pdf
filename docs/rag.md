@@ -11,6 +11,7 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 | `ingestPdf.js` | Runs ingestion for one PDF |
 | `extraction/extractPages.js` | Text per page: unpdf's text layer, or docling OCR for pages without one |
 | `extraction/doclingClient.js` | docling-serve client: one page of a PDF to markdown, with OCR off or with EasyOCR |
+| `extraction/ocrQuality.js` | Scores how readable a page's OCR output is, from 0 to 1. Holds `MIN_SCORE` |
 | `chunkPages.js` | Overlapping, page-aware word windows |
 | `embedder.js` | Gemini embedder, one request per chunk, in order, and one per question |
 | `vectorStores/firestore.js` | Vector store on Firestore native vector search |
@@ -34,9 +35,10 @@ PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vect
      scrambled, tables lose their structure, and captions or sidebars can land out of place.
    - A page with no text layer (a scan or a photo) goes to docling with OCR (EasyOCR), one page per
      request, and comes back as markdown. A PDF where no text could be read at all is rejected.
-   - OCR output isn't checked yet (#53). A misread character can't be told apart from a correct one,
-     especially a digit: RapidOCR, docling's other OCR engine, read "99" as "66" on a sample scan,
-     which is why EasyOCR is used (#50).
+     EasyOCR is used because RapidOCR, docling's other OCR engine, read "99" as "66" on a sample
+     scan (#50).
+   - Each OCR'd page gets a [quality score](#ocr-quality-score). Nothing acts on it yet: the Gemini
+     fallback that will read low-scoring pages again is #54.
 2. **Chunk** into windows of 200 words. Each chunk repeats the last 30 words of the previous one, so
    an idea cut at a chunk edge still appears whole in the next chunk, and words are never cut in
    half. Chunks may cross page breaks and record `pageStart` / `pageEnd` (the pages of their first
@@ -73,6 +75,34 @@ service ([Deploy docling](deploy-docling.md)). Ingestion calls it for each page 
 - **Timeout:** `/extract` runs inside the request, and Cloud Run stops a request after 300 seconds.
   That fits roughly 15 scanned pages once docling is warm, and fewer after a cold start. Longer
   scanned PDFs time out. Pages with a text layer don't call docling, so they don't count.
+
+### OCR quality score
+
+Docling returns no confidence for its OCR, so `ocrQuality(text)` estimates from the text alone how
+readable a page came out, from 0 to 1. Only OCR'd pages are scored; text-layer pages are not.
+
+1. **Enough text?** Fewer than 50 characters, not counting whitespace, scores 0.
+2. **Word ratio:** the share of letter runs that are in an English word list
+   ([`an-array-of-english-words`](https://github.com/words/an-array-of-english-words), about 275,000
+   words). It is loaded on the first score, not at startup, because it takes about 35 MB.
+3. **Junk penalty:** the share of characters that are not letters, digits, whitespace, common
+   punctuation, `₹ $ /` or markdown's `| # *`, times 5, capped at 1.
+
+**Score = word ratio × (1 − junk penalty).** Pages that score at least `MIN_SCORE` (0.8) will be
+accepted, and lower ones read again by Gemini (#54). A low score never fails the ingestion.
+
+What it catches and what it doesn't:
+
+- **Garbled OCR scores low.** On blurry sample scans EasyOCR returned "multlple" and "Iln syne",
+  which aren't words. Those pages scored 0.66–0.79, and clean scans 0.83–0.92.
+- **Misreads that still look right score high.** "99" read as "66", or "docling" read as "docking",
+  has no junk and no non-words, so the page is accepted with the wrong text.
+- **Short pages score 0.** A scanned page that really holds only "Thanks" can't be told apart from
+  OCR that missed most of a page, so it costs one extra Gemini call.
+- Names and acronyms (Paxos, SQL) aren't in the word list, so good pages score about 0.9, not 1.
+
+The constants, the samples they were chosen on, and every change to them are recorded on
+[#53](https://github.com/shrirambalakrishnan/chat-with-pdf/issues/53).
 
 ### Embedding requests
 
@@ -193,7 +223,7 @@ npm run rag:extract -- report.pdf
 # --- page 1 (unpdf) ---
 # <page text>
 #
-# --- page 2 (docling-ocr) ---
+# --- page 2 (docling-ocr, score 0.83) ---
 # <page text read with OCR, as markdown>
 #
 # 2 pages in <seconds>s
