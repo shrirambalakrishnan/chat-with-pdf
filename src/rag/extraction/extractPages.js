@@ -10,10 +10,12 @@ function hasTextLayer(pageText) {
 /**
  * Extracts the text of a PDF, page by page.
  *
- * Resolves to an array where index 0 is page 1, with { text, route } for
- * each page. Every page gets an entry, with empty text if nothing could be
- * read from it, so indexes always line up with page numbers. `route` names
- * how the page was read: 'unpdf' or 'docling-ocr'.
+ * Resolves to an array where index 0 is page 1, with { text, route, score }
+ * for each page. Every page gets an entry, with empty text if nothing could
+ * be read from it, so indexes always line up with page numbers. `route`
+ * names how the page was read: 'unpdf' or 'docling-ocr'. `score` is
+ * docling's OCR confidence for OCR'd pages (#58), and null for text-layer
+ * pages or when docling gave none. Nothing acts on it yet (#54).
  *
  * unpdf reads the text layer of every page in one call, in the order the
  * text is stored in the PDF. Google Docs, Word and LaTeX store it in reading
@@ -31,10 +33,10 @@ async function extractPages(pdfBuffer, { docling }) {
   const pages = [];
   for (const [index, pageText] of pageTexts.entries()) {
     if (hasTextLayer(pageText)) {
-      pages.push({ text: pageText, route: 'unpdf' });
+      pages.push({ text: pageText, route: 'unpdf', score: null });
     } else {
-      const { markdown } = await docling.convertPage(pdfBuffer, index + 1, { ocr: true });
-      pages.push({ text: markdown, route: 'docling-ocr' });
+      const { markdown, ocrScore } = await docling.convertPage(pdfBuffer, index + 1, { ocr: true });
+      pages.push({ text: markdown, route: 'docling-ocr', score: ocrScore });
     }
   }
   return pages;
