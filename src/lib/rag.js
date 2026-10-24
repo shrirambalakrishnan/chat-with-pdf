@@ -1,10 +1,12 @@
 const { GoogleGenAI } = require('@google/genai');
 const config = require('../config');
 const firestore = require('./firestore');
+const getDoclingToken = require('./doclingToken');
 const {
   createGeminiEmbedder,
   createGeminiGenerator,
   createFirestoreVectorStore,
+  createDoclingClient,
 } = require('../rag');
 
 // The RAG module reads no config; this wires its dependencies from env.
@@ -31,4 +33,9 @@ const generator = createGeminiGenerator({
   model: config.chat.model,
 });
 
-module.exports = { embedder, vectorStore, generator };
+const docling = createDoclingClient({
+  url: config.docling.url,
+  getToken: getDoclingToken,
+});
+
+module.exports = { embedder, vectorStore, generator, docling };

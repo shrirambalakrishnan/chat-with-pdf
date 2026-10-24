@@ -10,3 +10,7 @@ sample-pdfs/
 
 # Cloud Run environment variables, copied from env.cloudrun.example.yaml
 env.cloudrun.yaml
+
+reports
+
+research_notes

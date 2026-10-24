@@ -21,6 +21,16 @@ gcloud auth application-default login
 
 On Cloud Run, ADC uses the service account attached to the service.
 
+Calls to the private docling service don't use ADC. Locally, the app runs
+`gcloud auth print-identity-token`, which needs your gcloud CLI login:
+
+```sh
+gcloud auth login
+```
+
+Your account also needs `roles/run.invoker` on the docling service. A project owner already has it;
+see [Deploy docling](deploy-docling.md#let-the-app-call-it).
+
 If `GOOGLE_APPLICATION_CREDENTIALS` is set, in your shell or in `.env`, the libraries read credentials
 from that file instead. Leave it unset unless you mean to use a key file.
 
@@ -38,6 +48,7 @@ Copy `.env.example` to `.env` and fill in every value:
 | `EMBEDDING_DIMENSIONS` | Embedding size, `768`. At most 2048 (Firestore's vector limit) |
 | `CHAT_MODEL` | Chat model that answers questions, `gemini-3.8-flash` |
 | `CHAT_LOCATION` | Vertex AI location for the chat model, `global`. `gemini-3.8-flash` is served on the global and multi-region endpoints, not in single regions like `us-central1` |
+| `DOCLING_URL` | URL of the private docling service, with no trailing slash. See [Deploy docling](deploy-docling.md) |
 | `PORT` | Optional, defaults to `3000` |
 
 The service refuses to start if any required variable is missing, and names the missing ones.

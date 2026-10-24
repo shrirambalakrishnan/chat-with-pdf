@@ -1,6 +1,6 @@
 const { FieldValue } = require('@google-cloud/firestore');
 const { fileFromGcsUri } = require('../lib/storage');
-const { embedder, vectorStore } = require('../lib/rag');
+const { embedder, vectorStore, docling } = require('../lib/rag');
 const { ingestPdf } = require('../rag');
 const { DOCUMENT_STATUS } = require('../constants');
 
@@ -32,7 +32,11 @@ async function extractDocument(snapshot) {
 
   try {
     const [pdfBuffer] = await fileFromGcsUri(gcsUri).download();
-    await ingestPdf(pdfBuffer, { ownerId, documentId: snapshot.id }, { embedder, vectorStore });
+    await ingestPdf(
+      pdfBuffer,
+      { ownerId, documentId: snapshot.id },
+      { embedder, vectorStore, docling }
+    );
     await setStatus(snapshot, { status: DOCUMENT_STATUS.READY });
   } catch (err) {
     console.error(`Extraction failed for document ${snapshot.id}:`, err);

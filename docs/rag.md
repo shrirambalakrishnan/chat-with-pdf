@@ -9,7 +9,8 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 | --- | --- |
 | `index.js` | The module's public API |
 | `ingestPdf.js` | Runs ingestion for one PDF |
-| `extractPages.js` | Text per page |
+| `extraction/extractPages.js` | Text per page: unpdf's text layer, empty for pages without one |
+| `extraction/doclingClient.js` | docling-serve client: one page of a PDF to markdown. Not called during ingestion yet |
 | `chunkPages.js` | Overlapping, page-aware word windows |
 | `embedder.js` | Gemini embedder, one request per chunk, in order, and one per question |
 | `vectorStores/firestore.js` | Vector store on Firestore native vector search |
@@ -21,12 +22,18 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 
 ```
 PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vector store
-              (text per page)   (200 words,   (gemini-embedding-001,  (Firestore chunks
-                                 30 overlap)   RETRIEVAL_DOCUMENT)     collection)
+              (unpdf,           (200 words,   (gemini-embedding-001,  (Firestore chunks
+               text per page)    30 overlap)   RETRIEVAL_DOCUMENT)     collection)
 ```
 
-1. **Extract** the text layer page by page (`unpdf`). PDFs are assumed to have one; a PDF with no
-   text at all is rejected.
+1. **Extract** each page on its own, so page numbers stay correct for citations:
+   - `unpdf` reads the text layer of every page. A page with any text at all has a text layer, and
+     its text is used as unpdf gives it.
+   - unpdf reads text in the order it is stored in the PDF. Google Docs, Word and LaTeX store it in
+     reading order, columns included. PDFs that store it out of order (slides, brochures) come out
+     scrambled, tables lose their structure, and captions or sidebars can land out of place.
+   - A page with no text layer (a scan or a photo) comes out empty, for now. A PDF with no text at
+     all is rejected.
 2. **Chunk** into windows of 200 words. Each chunk repeats the last 30 words of the previous one, so
    an idea cut at a chunk edge still appears whole in the next chunk, and words are never cut in
    half. Chunks may cross page breaks and record `pageStart` / `pageEnd` (the pages of their first
@@ -38,11 +45,25 @@ PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vect
 
 ```js
 const { ingestPdf } = require('./src/rag');
-const { embedder, vectorStore } = require('./src/lib/rag');
+const { embedder, vectorStore, docling } = require('./src/lib/rag');
 
-await ingestPdf(pdfBuffer, { ownerId, documentId }, { embedder, vectorStore });
+await ingestPdf(pdfBuffer, { ownerId, documentId }, { embedder, vectorStore, docling });
 // → { pageCount, chunkCount }
 ```
+
+### Docling client
+
+[docling-serve](https://github.com/docling-project/docling-serve) runs as its own private Cloud Run
+service ([Deploy docling](deploy-docling.md)). Ingestion doesn't call it yet; pages with no text layer
+will use it for OCR (#50). For now only `npm run rag:extract:docling` calls it.
+
+- **Request:** `POST /v1/convert/file` with the whole PDF, `page_range` set to one page,
+  `to_formats=md` and `do_ocr=false`. The PDF is never split.
+- **Auth:** each request carries an ID token from `getDoclingToken()` (`src/lib/doclingToken.js`):
+  the app's service account token from the metadata server on Cloud Run, and
+  `gcloud auth print-identity-token` locally.
+- **Time:** about 4 seconds a page once docling is warm. Docling scales to zero when idle, so the
+  first request after a quiet spell waits about 2 minutes for an instance to start.
 
 ### Embedding requests
 
@@ -155,7 +176,28 @@ from `src/lib/rag.js`. Nothing else changes.
 
 ## Try it on a local PDF
 
-With `.env` in place and logged in (see [Credentials](run-locally.md#credentials)):
+With `.env` in place and logged in (see [Credentials](run-locally.md#credentials)), see what each page
+comes out as, without chunking, embedding or writing anything:
+
+```sh
+npm run rag:extract -- report.pdf
+# --- page 1 ---
+# <page text, as markdown>
+#
+# --- page 2 ---
+# (empty)
+#
+# 2 pages in <seconds>s
+```
+
+To compare the two extractors on the same file, each on every page and with no text-layer check:
+
+```sh
+npm run rag:extract:unpdf -- report.pdf     # unpdf's text layer; no env variables needed
+npm run rag:extract:docling -- report.pdf   # docling with OCR off, one call per page
+```
+
+Then ingest it:
 
 ```sh
 npm run rag:ingest -- report.pdf seed-user test-doc

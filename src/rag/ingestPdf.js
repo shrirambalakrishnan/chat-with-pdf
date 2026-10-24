@@ -1,4 +1,4 @@
-const extractPages = require('./extractPages');
+const extractPages = require('./extraction/extractPages');
 const { chunkPages } = require('./chunkPages');
 
 // Deterministic, so re-ingesting a document overwrites its chunks instead of
@@ -12,8 +12,8 @@ const chunkId = (documentId, index) => `${documentId}_${index}`;
  *
  * Knows nothing about HTTP, the documents collection or document status:
  * `ownerId` and `documentId` are only stored on each chunk so retrieval can
- * filter by them. The embedder and vector store are passed in, so either
- * can be swapped without touching this pipeline.
+ * filter by them. The embedder, vector store and docling client are passed
+ * in, so any of them can be swapped without touching this pipeline.
  *
  * Chunks already stored for the document are overwritten through their
  * deterministic ids. Resolves to { pageCount, chunkCount }.
@@ -21,9 +21,9 @@ const chunkId = (documentId, index) => `${documentId}_${index}`;
 async function ingestPdf(
   pdfBuffer,
   { ownerId, documentId },
-  { embedder, vectorStore, chunkWords, overlapWords }
+  { embedder, vectorStore, docling, chunkWords, overlapWords }
 ) {
-  const pages = await extractPages(pdfBuffer);
+  const pages = await extractPages(pdfBuffer, { docling });
   const chunks = chunkPages(pages, { chunkWords, overlapWords });
   if (chunks.length === 0) {
     throw new Error('The PDF has no extractable text');

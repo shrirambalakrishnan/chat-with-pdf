@@ -17,13 +17,13 @@ async function ingestLocalPdf() {
   // Required after checking the arguments so usage errors are reported even
   // when the GCP env variables are not set yet.
   const { ingestPdf } = require('../../src/rag');
-  const { embedder, vectorStore } = require('../../src/lib/rag');
+  const { embedder, vectorStore, docling } = require('../../src/lib/rag');
 
   const startedAt = Date.now();
   const { pageCount, chunkCount } = await ingestPdf(
     fs.readFileSync(filePath),
     { ownerId, documentId },
-    { embedder, vectorStore }
+    { embedder, vectorStore, docling }
   );
   const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
   console.log(
