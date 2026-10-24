@@ -14,6 +14,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed:user": "node scripts/seed-user/index.js",
+    "rag:extract": "node scripts/rag-extract/index.js",
     "rag:ingest": "node scripts/rag-ingest/index.js",
     "rag:query": "node scripts/rag-query/index.js",
     "rag:ask": "node scripts/rag-ask/index.js"

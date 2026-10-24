@@ -156,7 +156,21 @@ from `src/lib/rag.js`. Nothing else changes.
 
 ## Try it on a local PDF
 
-With `.env` in place and logged in (see [Credentials](run-locally.md#credentials)):
+With `.env` in place and logged in (see [Credentials](run-locally.md#credentials)), see what each page
+comes out as, without chunking, embedding or writing anything:
+
+```sh
+npm run rag:extract -- report.pdf
+# --- page 1 ---
+# <page text, as markdown>
+#
+# --- page 2 ---
+# (empty)
+#
+# 2 pages in <seconds>s
+```
+
+Then ingest it:
 
 ```sh
 npm run rag:ingest -- report.pdf seed-user test-doc
