@@ -27,6 +27,7 @@
     "@google/genai": "2.26.0",
     "dotenv": "18.0.7",
     "express": "5.3.0",
+    "pdf-lib": "1.17.1",
     "unpdf": "1.8.1"
   }
 }
