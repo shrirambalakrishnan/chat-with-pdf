@@ -9,8 +9,8 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 | --- | --- |
 | `index.js` | The module's public API |
 | `ingestPdf.js` | Runs ingestion for one PDF |
-| `extraction/extractPages.js` | Text per page: docling for pages with a text layer, empty for the rest |
-| `extraction/doclingClient.js` | docling-serve client: one page of a PDF to markdown |
+| `extraction/extractPages.js` | Text per page: unpdf's text layer, empty for pages without one |
+| `extraction/doclingClient.js` | docling-serve client: one page of a PDF to markdown. Not called during ingestion yet |
 | `chunkPages.js` | Overlapping, page-aware word windows |
 | `embedder.js` | Gemini embedder, one request per chunk, in order, and one per question |
 | `vectorStores/firestore.js` | Vector store on Firestore native vector search |
@@ -22,16 +22,16 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 
 ```
 PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vector store
-              (docling,         (200 words,   (gemini-embedding-001,  (Firestore chunks
-               markdown          30 overlap)   RETRIEVAL_DOCUMENT)     collection)
-               per page)
+              (unpdf,           (200 words,   (gemini-embedding-001,  (Firestore chunks
+               text per page)    30 overlap)   RETRIEVAL_DOCUMENT)     collection)
 ```
 
 1. **Extract** each page on its own, so page numbers stay correct for citations:
-   - `unpdf` reads the text layer of every page, only to tell which pages have one: a page with any
-     text at all has a text layer.
-   - A page with a text layer goes to docling with OCR off. Docling keeps columns and tables in
-     reading order and returns markdown.
+   - `unpdf` reads the text layer of every page. A page with any text at all has a text layer, and
+     its text is used as unpdf gives it.
+   - unpdf reads text in the order it is stored in the PDF. Google Docs, Word and LaTeX store it in
+     reading order, columns included. PDFs that store it out of order (slides, brochures) come out
+     scrambled, tables lose their structure, and captions or sidebars can land out of place.
    - A page with no text layer (a scan or a photo) comes out empty, for now. A PDF with no text at
      all is rejected.
 2. **Chunk** into windows of 200 words. Each chunk repeats the last 30 words of the previous one, so
@@ -51,23 +51,19 @@ await ingestPdf(pdfBuffer, { ownerId, documentId }, { embedder, vectorStore, doc
 // → { pageCount, chunkCount }
 ```
 
-### Docling requests
+### Docling client
 
 [docling-serve](https://github.com/docling-project/docling-serve) runs as its own private Cloud Run
-service ([Deploy docling](deploy-docling.md)). Each page with a text layer is one request:
-`POST /v1/convert/file` with the whole PDF, `page_range` set to that page, `to_formats=md` and
-`do_ocr=false`. The PDF is never split. Requests run one after another, with no retries yet, so an
-error fails the ingestion.
+service ([Deploy docling](deploy-docling.md)). Ingestion doesn't call it yet; pages with no text layer
+will use it for OCR (#50). For now only `npm run rag:extract:docling` calls it.
 
+- **Request:** `POST /v1/convert/file` with the whole PDF, `page_range` set to one page,
+  `to_formats=md` and `do_ocr=false`. The PDF is never split.
 - **Auth:** each request carries an ID token from `getDoclingToken()` (`src/lib/doclingToken.js`):
   the app's service account token from the metadata server on Cloud Run, and
   `gcloud auth print-identity-token` locally.
 - **Time:** about 4 seconds a page once docling is warm. Docling scales to zero when idle, so the
   first request after a quiet spell waits about 2 minutes for an instance to start.
-- **Timeout:** `/extract` runs inside the request, and Cloud Run stops a request after 300 seconds.
-  That fits roughly 40 pages after a cold start, or 65 warm. Longer PDFs time out.
-- **Markdown in chunks:** the chunker splits on whitespace, so a table's rows run together on one
-  line in a chunk, and image placeholders (`<!-- image -->`) stay as words.
 
 ### Embedding requests
 

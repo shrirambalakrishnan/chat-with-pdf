@@ -14,12 +14,13 @@ function hasTextLayer(pageText) {
  * full-page image) is an empty string, so indexes always line up with page
  * numbers.
  *
- * unpdf reads the text layer of every page in one call, only to tell which
- * pages have one. Those pages are then read by docling (OCR off), one after
- * another, which keeps columns and tables in reading order and returns
- * markdown. The chunker splits it into words like any other text.
+ * unpdf reads the text layer of every page in one call, in the order the
+ * text is stored in the PDF. Google Docs, Word and LaTeX store it in reading
+ * order, columns included. PDFs that store it out of order (slides,
+ * brochures) come out scrambled, and tables lose their structure (#49).
  *
  * `docling` is a client from createDoclingClient; the caller creates it.
+ * Pages with no text layer will use it for OCR (#50).
  */
 async function extractPages(pdfBuffer, { docling }) {
   // pdf.js takes ownership of the bytes it is given, so pass a copy.
@@ -28,7 +29,7 @@ async function extractPages(pdfBuffer, { docling }) {
   const pages = [];
   for (const [index, pageText] of pageTexts.entries()) {
     if (hasTextLayer(pageText)) {
-      pages.push(await docling.convertPage(pdfBuffer, index + 1));
+      pages.push(pageText);
     } else {
       // No text layer: OCR comes in #50. An empty string keeps the page's slot,
       // so later pages keep their numbers.
