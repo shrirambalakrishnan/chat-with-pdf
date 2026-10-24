@@ -10,7 +10,7 @@ variables. Its clients and settings are passed in; `src/lib/rag.js` builds them 
 | `index.js` | The module's public API |
 | `ingestPdf.js` | Runs ingestion for one PDF |
 | `extraction/extractPages.js` | Text per page: unpdf's text layer, or docling OCR for pages without one |
-| `extraction/doclingClient.js` | docling-serve client: one page of a PDF to markdown, with OCR off or with EasyOCR |
+| `extraction/doclingClient.js` | docling-serve client: one page of a PDF to markdown, with OCR off or with EasyOCR, plus docling's OCR confidence |
 | `chunkPages.js` | Overlapping, page-aware word windows |
 | `embedder.js` | Gemini embedder, one request per chunk, in order, and one per question |
 | `vectorStores/firestore.js` | Vector store on Firestore native vector search |
@@ -34,9 +34,10 @@ PDF bytes ──▶ extract pages ──▶ chunk ──▶ embed ──▶ vect
      scrambled, tables lose their structure, and captions or sidebars can land out of place.
    - A page with no text layer (a scan or a photo) goes to docling with OCR (EasyOCR), one page per
      request, and comes back as markdown. A PDF where no text could be read at all is rejected.
-   - OCR output isn't checked yet (#53). A misread character can't be told apart from a correct one,
-     especially a digit: RapidOCR, docling's other OCR engine, read "99" as "66" on a sample scan,
-     which is why EasyOCR is used (#50).
+     EasyOCR is used because RapidOCR, docling's other OCR engine, read "99" as "66" on a sample
+     scan (#50).
+   - Each OCR'd page carries docling's [OCR confidence](#ocr-confidence). Nothing acts on it yet:
+     the Gemini fallback that will read low-scoring pages again is #54.
 2. **Chunk** into windows of 200 words. Each chunk repeats the last 30 words of the previous one, so
    an idea cut at a chunk edge still appears whole in the next chunk, and words are never cut in
    half. Chunks may cross page breaks and record `pageStart` / `pageEnd` (the pages of their first
@@ -64,6 +65,8 @@ service ([Deploy docling](deploy-docling.md)). Ingestion calls it for each page 
   `to_formats=md`. With OCR, `do_ocr=true` and `ocr_preset=easyocr`; otherwise `do_ocr=false`. The
   PDF is never split. Requests run one after another, with no retries yet, so an error fails the
   ingestion.
+- **Response:** the page's markdown (`document.md_content`) and docling's OCR confidence
+  (`confidence.ocr_score`), returned as `{ markdown, ocrScore }`.
 - **Auth:** each request carries an ID token from `getDoclingToken()` (`src/lib/doclingToken.js`):
   the app's service account token from the metadata server on Cloud Run, and
   `gcloud auth print-identity-token` locally.
@@ -73,6 +76,38 @@ service ([Deploy docling](deploy-docling.md)). Ingestion calls it for each page 
 - **Timeout:** `/extract` runs inside the request, and Cloud Run stops a request after 300 seconds.
   That fits roughly 15 scanned pages once docling is warm, and fewer after a cold start. Longer
   scanned PDFs time out. Pages with a text layer don't call docling, so they don't count.
+
+### OCR confidence
+
+When docling reads a page with OCR, EasyOCR reports how sure it is of each piece of text, from 0 to
+1. Docling drops text EasyOCR is less than 50% sure of and averages the rest into `ocr_score`, which
+`extractPages` returns as the page's `score`. Text-layer pages have no score.
+
+**Rule:** a page is accepted when its score is **0.8 or higher**. A lower score, or no score, will
+send the page to Gemini (#54). A page has no score when OCR read nothing, for example a Tamil page:
+the docling image only has EasyOCR's Latin model. A low score never fails the ingestion.
+
+0.8 is where docling's "good" grade starts. Docling recommends no threshold, and says its numbers
+are informational and may change between versions
+([confidence scores](https://github.com/docling-project/docling/blob/main/docs/concepts/confidence_scores.md)).
+The docling image is pinned, so the score only changes when we upgrade it, and an upgrade means
+checking the threshold again. Docling's own grades (`low_grade`, `mean_grade`) aren't used: they mix
+in `layout_score`, which rates how well the page's regions were found, not the text, and they called
+a garbled sample page "good".
+
+What it catches and what it doesn't:
+
+- **OCR that clearly failed scores low.** On blurry sample scans, garbled pages scored 0.70–0.7981,
+  and readable ones 0.81–0.97.
+- **Dropped text is invisible.** The score only rates the text that was kept: a page where only the
+  heading survived scored 0.92.
+- **Misreads that still look right score high.** Confidence is how sure the engine is, not whether
+  it is right: RapidOCR was 1.00 sure of "66" for "99".
+- **The margin is thin.** The worst garbled page was 0.002 under 0.8, and the samples are
+  low-resolution renders of digital PDFs, not real scans or phone photos.
+
+So the score is a cheap check for "OCR clearly failed", not a guarantee that the text is right. The
+evidence and the decision are on [#58](https://github.com/shrirambalakrishnan/chat-with-pdf/issues/58).
 
 ### Embedding requests
 
@@ -193,7 +228,7 @@ npm run rag:extract -- report.pdf
 # --- page 1 (unpdf) ---
 # <page text>
 #
-# --- page 2 (docling-ocr) ---
+# --- page 2 (docling-ocr, ocr score 0.97) ---
 # <page text read with OCR, as markdown>
 #
 # 2 pages in <seconds>s
