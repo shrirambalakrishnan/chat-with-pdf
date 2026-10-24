@@ -7,6 +7,7 @@ const { askPdf, TOP_K } = require('./askPdf');
 const { chunkPages } = require('./chunkPages');
 const { createGeminiEmbedder } = require('./embedder');
 const { createDoclingClient } = require('./extraction/doclingClient');
+const { createGeminiPageReader } = require('./extraction/geminiPageReader');
 const { createGeminiGenerator } = require('./generator');
 const { createFirestoreVectorStore } = require('./vectorStores/firestore');
 
@@ -18,6 +19,7 @@ module.exports = {
   chunkPages,
   createGeminiEmbedder,
   createDoclingClient,
+  createGeminiPageReader,
   createGeminiGenerator,
   createFirestoreVectorStore,
 };

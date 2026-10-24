@@ -24,7 +24,7 @@ flowchart TB
     subgraph ingest["② Extract & index"]
         direction LR
         i1(["POST /extract"]) --> i2["Download PDF<br/>from Cloud Storage"]
-        i2 --> i3["Extract text per page<br/><i>unpdf; docling OCR for scans</i>"]
+        i2 --> i3["Extract text per page<br/><i>unpdf; docling OCR for scans;<br/>Gemini if OCR scores low</i>"]
         i3 --> i4["Chunk<br/><i>200 words, 30 overlap</i>"]
         i4 --> i5["Embed chunks<br/><i>gemini-embedding-001</i>"]
         i5 --> i6[("Firestore<br/>chunks + vectors<br/><i>ready</i>")]
@@ -63,6 +63,8 @@ flowchart TB
   | Vector store | Firestore vector search (`findNearest`, cosine distance) |
   | PDF text extraction | [`unpdf`](https://github.com/unjs/unpdf) |
   | OCR for scanned pages | [docling-serve](https://github.com/docling-project/docling-serve) on Cloud Run, with EasyOCR |
+  | OCR fallback | Vertex AI `gemini-3.8-flash`, for scanned pages docling's OCR scored below 0.8 |
+  | PDF page splitting | [`pdf-lib`](https://github.com/Hopding/pdf-lib) |
   | File storage | GCP Cloud Storage |
   | Hosting | GCP Cloud Run |
 

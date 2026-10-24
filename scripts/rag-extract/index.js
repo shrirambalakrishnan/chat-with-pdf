@@ -23,16 +23,20 @@ async function extractLocalPdf() {
   // Required after checking the arguments so usage errors are reported even
   // when the env variables are not set yet.
   const { extractPages } = require('../../src/rag');
-  const { docling } = require('../../src/lib/rag');
+  const { docling, gemini } = require('../../src/lib/rag');
 
   const startedAt = Date.now();
-  const pages = await extractPages(fs.readFileSync(filePath), { docling });
+  const pages = await extractPages(fs.readFileSync(filePath), { docling, gemini });
   const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
 
   pages.forEach(({ text, route, score }, i) => {
+    const ocr = score === null ? 'no ocr score' : `ocr score ${formatScore(score)}`;
     let label = route;
     if (route === 'docling-ocr') {
-      label += score === null ? ', no ocr score' : `, ocr score ${formatScore(score)}`;
+      label = `docling-ocr, ${ocr}`;
+    } else if (route === 'gemini') {
+      // Pages Gemini read again keep docling's score, to show why.
+      label = `docling-ocr, ${ocr} → gemini`;
     }
     console.log(`--- page ${i + 1} (${label}) ---\n${text || '(empty)'}\n`);
   });

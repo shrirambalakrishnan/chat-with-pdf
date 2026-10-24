@@ -7,6 +7,7 @@ const {
   createGeminiGenerator,
   createFirestoreVectorStore,
   createDoclingClient,
+  createGeminiPageReader,
 } = require('../rag');
 
 // The RAG module reads no config; this wires its dependencies from env.
@@ -28,8 +29,11 @@ const embedder = createGeminiEmbedder({
 
 const vectorStore = createFirestoreVectorStore({ firestore });
 
+// The generator and the page reader both use the chat model.
+const chatClient = vertexClient(config.chat.location);
+
 const generator = createGeminiGenerator({
-  client: vertexClient(config.chat.location),
+  client: chatClient,
   model: config.chat.model,
 });
 
@@ -38,4 +42,9 @@ const docling = createDoclingClient({
   getToken: getDoclingToken,
 });
 
-module.exports = { embedder, vectorStore, generator, docling };
+const gemini = createGeminiPageReader({
+  client: chatClient,
+  model: config.chat.model,
+});
+
+module.exports = { embedder, vectorStore, generator, docling, gemini };
