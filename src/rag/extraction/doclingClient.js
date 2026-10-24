@@ -2,10 +2,16 @@
  * Client for docling-serve, which reads PDF pages in reading order, with
  * columns and tables, and returns them as markdown.
  *
- * - convertPage(pdfBuffer, pageNumber, { ocr }): resolves to the markdown of
- *   one page (1-based) of the PDF. By default it is read from the page's text
- *   layer with OCR off. With `ocr: true`, the text in the page's images is
- *   read with EasyOCR, for pages with no text layer (scans, photos).
+ * - convertPage(pdfBuffer, pageNumber, { ocr }): resolves to
+ *   { markdown, ocrScore } for one page (1-based) of the PDF. By default it
+ *   is read from the page's text layer with OCR off. With `ocr: true`, the
+ *   text in the page's images is read with EasyOCR, for pages with no text
+ *   layer (scans, photos).
+ *
+ *   `ocrScore` is docling's `confidence.ocr_score`: EasyOCR's confidence,
+ *   from 0 to 1, averaged over the text docling kept. Text EasyOCR is less
+ *   than 50% sure of is dropped before the average, so the score doesn't
+ *   show missing text. It is null when OCR is off or read nothing (#58).
  *
  * `url` is the docling service's URL, with no trailing slash. `getToken`
  * resolves to an ID token the service accepts; the caller decides how it is
@@ -37,8 +43,8 @@ function createDoclingClient({ url, getToken }) {
     if (!response.ok) {
       throw new Error(`Docling returned ${response.status} for page ${pageNumber}`);
     }
-    const { document } = await response.json();
-    return document.md_content;
+    const { document, confidence } = await response.json();
+    return { markdown: document.md_content, ocrScore: confidence?.ocr_score ?? null };
   }
 
   return { convertPage };
