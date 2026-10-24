@@ -8,19 +8,21 @@ function hasTextLayer(pageText) {
 }
 
 /**
- * Extracts the text of a PDF, one string per page.
+ * Extracts the text of a PDF, page by page.
  *
- * Resolves to an array where index 0 is page 1. A page without text (e.g. a
- * full-page image) is an empty string, so indexes always line up with page
- * numbers.
+ * Resolves to an array where index 0 is page 1, with { text, route } for
+ * each page. Every page gets an entry, with empty text if nothing could be
+ * read from it, so indexes always line up with page numbers. `route` names
+ * how the page was read: 'unpdf' or 'docling-ocr'.
  *
  * unpdf reads the text layer of every page in one call, in the order the
  * text is stored in the PDF. Google Docs, Word and LaTeX store it in reading
  * order, columns included. PDFs that store it out of order (slides,
  * brochures) come out scrambled, and tables lose their structure (#49).
  *
- * `docling` is a client from createDoclingClient; the caller creates it.
- * Pages with no text layer will use it for OCR (#50).
+ * Pages with no text layer (scans, photos) are read by docling with OCR, one
+ * after another, and come back as markdown. `docling` is a client from
+ * createDoclingClient; the caller creates it.
  */
 async function extractPages(pdfBuffer, { docling }) {
   // pdf.js takes ownership of the bytes it is given, so pass a copy.
@@ -29,11 +31,10 @@ async function extractPages(pdfBuffer, { docling }) {
   const pages = [];
   for (const [index, pageText] of pageTexts.entries()) {
     if (hasTextLayer(pageText)) {
-      pages.push(pageText);
+      pages.push({ text: pageText, route: 'unpdf' });
     } else {
-      // No text layer: OCR comes in #50. An empty string keeps the page's slot,
-      // so later pages keep their numbers.
-      pages.push('');
+      const text = await docling.convertPage(pdfBuffer, index + 1, { ocr: true });
+      pages.push({ text, route: 'docling-ocr' });
     }
   }
   return pages;
