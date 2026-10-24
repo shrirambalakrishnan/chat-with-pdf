@@ -23,8 +23,8 @@ async function extractLocalPdf() {
   const pages = await extractPages(fs.readFileSync(filePath), { docling });
   const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
 
-  pages.forEach((text, i) => {
-    console.log(`--- page ${i + 1} ---\n${text || '(empty)'}\n`);
+  pages.forEach(({ text, route }, i) => {
+    console.log(`--- page ${i + 1} (${route}) ---\n${text || '(empty)'}\n`);
   });
   console.log(`${pages.length} pages in ${seconds}s`);
 }

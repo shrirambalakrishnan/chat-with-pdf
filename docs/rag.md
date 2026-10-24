@@ -181,11 +181,11 @@ comes out as, without chunking, embedding or writing anything:
 
 ```sh
 npm run rag:extract -- report.pdf
-# --- page 1 ---
-# <page text, as markdown>
+# --- page 1 (unpdf) ---
+# <page text>
 #
-# --- page 2 ---
-# (empty)
+# --- page 2 (docling-ocr) ---
+# <page text read with OCR, as markdown>
 #
 # 2 pages in <seconds>s
 ```

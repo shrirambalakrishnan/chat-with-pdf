@@ -24,7 +24,7 @@ function toWords(pages) {
  * Chunks may cross page breaks. Each one records the pages of its first and
  * last word, for citations.
  *
- * Takes the output of extractPages (index 0 is page 1) and returns
+ * Takes the text of each page (index 0 is page 1) and returns
  * [{ index, text, pageStart, pageEnd }].
  */
 function chunkPages(

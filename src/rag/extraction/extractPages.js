@@ -8,11 +8,12 @@ function hasTextLayer(pageText) {
 }
 
 /**
- * Extracts the text of a PDF, one string per page.
+ * Extracts the text of a PDF, page by page.
  *
- * Resolves to an array where index 0 is page 1. Every page gets a string,
- * empty if nothing could be read from it, so indexes always line up with
- * page numbers.
+ * Resolves to an array where index 0 is page 1, with { text, route } for
+ * each page. Every page gets an entry, with empty text if nothing could be
+ * read from it, so indexes always line up with page numbers. `route` names
+ * how the page was read: 'unpdf' or 'docling-ocr'.
  *
  * unpdf reads the text layer of every page in one call, in the order the
  * text is stored in the PDF. Google Docs, Word and LaTeX store it in reading
@@ -30,9 +31,10 @@ async function extractPages(pdfBuffer, { docling }) {
   const pages = [];
   for (const [index, pageText] of pageTexts.entries()) {
     if (hasTextLayer(pageText)) {
-      pages.push(pageText);
+      pages.push({ text: pageText, route: 'unpdf' });
     } else {
-      pages.push(await docling.convertPage(pdfBuffer, index + 1, { ocr: true }));
+      const text = await docling.convertPage(pdfBuffer, index + 1, { ocr: true });
+      pages.push({ text, route: 'docling-ocr' });
     }
   }
   return pages;

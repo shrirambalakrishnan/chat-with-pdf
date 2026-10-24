@@ -24,7 +24,7 @@ async function ingestPdf(
   { embedder, vectorStore, docling, chunkWords, overlapWords }
 ) {
   const pages = await extractPages(pdfBuffer, { docling });
-  const chunks = chunkPages(pages, { chunkWords, overlapWords });
+  const chunks = chunkPages(pages.map((page) => page.text), { chunkWords, overlapWords });
   if (chunks.length === 0) {
     throw new Error('The PDF has no extractable text');
   }
